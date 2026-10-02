@@ -18,7 +18,7 @@ Open scripts from the command line:
 dotnet run --project src/Iseberg -- ./example.ps1
 ```
 
-PowerShell is included through the SDK dependency; a separate `pwsh` installation is not required. Windows, Linux, and macOS are target platforms. Native desktop interaction has been exercised on Windows. A CI matrix is configured for all three platforms; Linux and macOS have not been verified locally, and the newly added workflow has not run yet.
+PowerShell is included through the SDK dependency; a separate `pwsh` installation is not required. Windows, Linux, and macOS are target platforms. Engine/headless desktop tests and publishing have been verified locally on Windows and Linux, and CI runs the same checks on all three platforms. Native desktop interaction has been exercised on Windows; native Linux/macOS desktop interaction has not yet been verified.
 
 On Linux, use a graphical desktop with Avalonia's native dependencies (including X11, fontconfig, and OpenGL or software rendering). Native title bars, file pickers, available fonts, and platform-specific cmdlets necessarily differ by operating system.
 
@@ -49,6 +49,8 @@ On macOS, Command is also accepted for the workbench shortcuts. Console Up/Down 
 Profiles are opt-in under Tools > Options. `$PROFILE` points to `Iseberg_profile.ps1` in the usual user PowerShell configuration directory, alongside the shared `profile.ps1`. Loading profiles executes all four profile locations in normal PowerShell order. Startup never silently changes execution policy or executes user profiles.
 
 Scripts execute with your account's permissions. This is **not a sandbox**. The console is a graphical PowerShell host, not a terminal emulator; full-screen interactive native programs and raw keyboard/buffer operations are not supported.
+
+`Clear-Host` and its `clear`/`cls` aliases clear the graphical console on every supported platform without invoking a native terminal program or resetting the PowerShell session.
 
 ## Build and test
 

@@ -30,6 +30,21 @@ public sealed class PowerShellSession : IAsyncDisposable
         var host = new WorkbenchHost(entry => Output?.Invoke(entry), ReadInput,
             update => ProgressChanged?.Invoke(update), () => ConsoleCleared?.Invoke());
         var initialState = InitialSessionState.CreateDefault2();
+        // The default Unix function clears a terminal instead of this graphical host.
+        initialState.Commands.Remove("Clear-Host", typeof(SessionStateFunctionEntry));
+        initialState.Commands.Add(new SessionStateFunctionEntry("Clear-Host", """
+            $rawUI = $Host.UI.RawUI
+            $rawUI.SetBufferContents(
+                [System.Management.Automation.Host.Rectangle]::new(-1, -1, -1, -1),
+                [System.Management.Automation.Host.BufferCell]::new(
+                    ' ',
+                    $rawUI.ForegroundColor,
+                    $rawUI.BackgroundColor,
+                    [System.Management.Automation.Host.BufferCellType]::Complete))
+            $rawUI.CursorPosition = [System.Management.Automation.Host.Coordinates]::new(0, 0)
+            """));
+        initialState.Commands.Remove("clear", typeof(SessionStateAliasEntry));
+        initialState.Commands.Add(new SessionStateAliasEntry("clear", "Clear-Host"));
         // These binary cmdlets must be available even when Restricted prevents loading module type data.
         initialState.Commands.Add(new SessionStateCmdletEntry("Set-ExecutionPolicy", typeof(Microsoft.PowerShell.Commands.SetExecutionPolicyCommand), null));
         initialState.Commands.Add(new SessionStateCmdletEntry("Get-ExecutionPolicy", typeof(Microsoft.PowerShell.Commands.GetExecutionPolicyCommand), null));

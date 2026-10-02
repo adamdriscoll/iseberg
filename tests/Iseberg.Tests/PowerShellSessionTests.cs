@@ -227,15 +227,23 @@ public sealed class PowerShellSessionTests
         }
     }
 
-    [Fact]
-    public async Task ClearHostClearsGraphicalConsole()
+    [Theory]
+    [InlineData("Clear-Host")]
+    [InlineData("clear")]
+    [InlineData("cls")]
+    public async Task ClearHostClearsGraphicalConsole(string command)
     {
         await using var session = new PowerShellSession();
-        var cleared = false;
-        session.ConsoleCleared += () => cleared = true;
+        var output = Capture(session);
+        var clearCount = 0;
+        session.ConsoleCleared += () => clearCount++;
         await session.InitializeAsync();
-        await session.ExecuteAsync("Clear-Host");
-        Assert.True(cleared);
+        await session.ExecuteAsync("$retainedAfterClear = 42");
+        await session.ExecuteAsync(command);
+        Assert.Equal(1, clearCount);
+        Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error);
+        await session.ExecuteAsync("$retainedAfterClear");
+        Assert.Contains("42", Text(output));
     }
 
     [Fact]
