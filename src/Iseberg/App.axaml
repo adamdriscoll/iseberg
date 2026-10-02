@@ -1,0 +1,55 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Iseberg.App"
+             RequestedThemeVariant="Light">
+  <Application.Styles>
+    <SimpleTheme />
+    <StyleInclude Source="avares://AvaloniaEdit/Themes/Simple/AvaloniaEdit.xaml" />
+    <Style Selector="Window">
+      <Setter Property="FontFamily" Value="Segoe UI, Noto Sans, DejaVu Sans" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Background" Value="#F0F0F0" />
+    </Style>
+    <Style Selector="Button.tool">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="4" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="0" />
+    </Style>
+    <Style Selector="Button.tool:pointerover">
+      <Setter Property="Background" Value="#DCEAF8" />
+    </Style>
+    <Style Selector="Button.close">
+      <Setter Property="Padding" Value="3,0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="MinWidth" Value="18" />
+      <Setter Property="MinHeight" Value="18" />
+    </Style>
+    <Style Selector="TabStripItem">
+      <Setter Property="Margin" Value="2,0,0,0" />
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="MinHeight" Value="27" />
+      <Setter Property="Background" Value="#E8E8E8" />
+      <Setter Property="BorderBrush" Value="#ADADAD" />
+      <Setter Property="BorderThickness" Value="1,1,1,0" />
+    </Style>
+    <Style Selector="ListBoxItem">
+      <Setter Property="Foreground" Value="Black" />
+      <Setter Property="Padding" Value="4,2" />
+    </Style>
+    <Style Selector="TabStripItem:selected">
+      <Setter Property="Background" Value="White" />
+      <Setter Property="Foreground" Value="Black" />
+    </Style>
+    <Style Selector="Menu">
+      <Setter Property="Background" Value="#F0F0F0" />
+    </Style>
+    <Style Selector="MenuItem">
+      <Setter Property="Padding" Value="7,4" />
+    </Style>
+  </Application.Styles>
+</Application>

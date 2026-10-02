@@ -1,0 +1,105 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build: Debug",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "Iseberg.slnx",
+        "--configuration",
+        "Debug",
+        "--verbosity",
+        "minimal"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$msCompile",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "build: Release",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "Iseberg.slnx",
+        "--configuration",
+        "Release",
+        "--verbosity",
+        "minimal"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$msCompile",
+      "group": "build"
+    },
+    {
+      "label": "test: Release",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "test",
+        "Iseberg.slnx",
+        "--configuration",
+        "Release",
+        "--verbosity",
+        "minimal"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$msCompile",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "publish: Release",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "publish",
+        "src${pathSeparator}Iseberg${pathSeparator}Iseberg.csproj",
+        "--configuration",
+        "Release",
+        "--runtime",
+        "${input:publishRuntime}",
+        "--self-contained",
+        "true",
+        "--output",
+        "publish${pathSeparator}${input:publishRuntime}",
+        "--verbosity",
+        "minimal"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$msCompile",
+      "group": "build"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "publishRuntime",
+      "type": "pickString",
+      "description": "Target platform for the self-contained desktop build",
+      "options": [
+        "win-x64",
+        "win-arm64",
+        "linux-x64",
+        "linux-arm64",
+        "osx-x64",
+        "osx-arm64"
+      ],
+      "default": "win-x64"
+    }
+  ]
+}
