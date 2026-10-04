@@ -1,0 +1,207 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+        xmlns:local="using:Iseberg"
+        x:Class="Iseberg.MainWindow"
+        Title="Iseberg - PowerShell 7 ISE"
+        Width="1180" Height="780" MinWidth="760" MinHeight="500"
+        WindowStartupLocation="CenterScreen">
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+    <Menu Grid.Row="0">
+      <MenuItem Header="_File">
+        <MenuItem Header="_New" InputGesture="Ctrl+N" Tag="New" Click="OnAction" />
+        <MenuItem Header="_Open..." InputGesture="Ctrl+O" Tag="Open" Click="OnAction" />
+        <MenuItem Header="_Save" InputGesture="Ctrl+S" Tag="Save" Click="OnAction" />
+        <MenuItem Header="Save _As..." InputGesture="Ctrl+Shift+S" Tag="SaveAs" Click="OnAction" />
+        <MenuItem Header="Save A_ll" Tag="SaveAll" Click="OnAction" />
+        <Separator />
+        <MenuItem Header="_Close" InputGesture="Ctrl+W" Tag="Close" Click="OnAction" />
+        <MenuItem x:Name="RecentMenu" Header="Recent _Files" />
+        <Separator />
+        <MenuItem Header="New _PowerShell Tab" InputGesture="Ctrl+T" Tag="NewSession" Click="OnAction" />
+        <MenuItem Header="Close PowerShell Tab" InputGesture="Ctrl+Shift+W" Tag="CloseSession" Click="OnAction" />
+        <Separator />
+        <MenuItem Header="E_xit" InputGesture="Alt+F4" Tag="Exit" Click="OnAction" />
+      </MenuItem>
+      <MenuItem Header="_Edit">
+        <MenuItem Header="_Undo" InputGesture="Ctrl+Z" Tag="Undo" Click="OnAction" />
+        <MenuItem Header="_Redo" InputGesture="Ctrl+Y" Tag="Redo" Click="OnAction" />
+        <Separator />
+        <MenuItem Header="Cu_t" InputGesture="Ctrl+X" Tag="Cut" Click="OnAction" />
+        <MenuItem Header="_Copy" InputGesture="Ctrl+C" Tag="Copy" Click="OnAction" />
+        <MenuItem Header="_Paste" InputGesture="Ctrl+V" Tag="Paste" Click="OnAction" />
+        <MenuItem Header="Select _All" InputGesture="Ctrl+A" Tag="SelectAll" Click="OnAction" />
+        <Separator />
+        <MenuItem Header="_Find..." InputGesture="Ctrl+F" Tag="Find" Click="OnAction" />
+        <MenuItem Header="_Replace..." InputGesture="Ctrl+H" Tag="Replace" Click="OnAction" />
+        <MenuItem Header="_Go to Line..." InputGesture="Ctrl+G" Tag="GoToLine" Click="OnAction" />
+      </MenuItem>
+      <MenuItem Header="_View">
+        <MenuItem Header="Show Script Pane _Top" InputGesture="Ctrl+1" Tag="Top" Click="OnAction" />
+        <MenuItem Header="Show Script Pane _Right" InputGesture="Ctrl+2" Tag="Right" Click="OnAction" />
+        <MenuItem Header="Show Script Pane _Maximized" InputGesture="Ctrl+3" Tag="Maximized" Click="OnAction" />
+        <Separator />
+        <MenuItem Header="Show _Commands Pane" InputGesture="Ctrl+Shift+C" Tag="Commands" Click="OnAction" />
+        <MenuItem Header="Show _Line Numbers" Tag="LineNumbers" Click="OnAction" />
+        <MenuItem Header="_Word Wrap" Tag="WordWrap" Click="OnAction" />
+        <MenuItem Header="Expand / Collapse Outlining" Tag="Fold" Click="OnAction" />
+        <Separator />
+        <MenuItem Header="Go to _Script Pane" InputGesture="Ctrl+I" Tag="FocusScript" Click="OnAction" />
+        <MenuItem Header="Go to C_onsole Pane" InputGesture="Ctrl+D" Tag="FocusConsole" Click="OnAction" />
+        <MenuItem Header="Zoom _In" InputGesture="Ctrl+OemPlus" Tag="ZoomIn" Click="OnAction" />
+        <MenuItem Header="Zoom _Out" InputGesture="Ctrl+OemMinus" Tag="ZoomOut" Click="OnAction" />
+      </MenuItem>
+      <MenuItem Header="_Tools">
+        <MenuItem Header="_Run Script" InputGesture="F5" Tag="Run" Click="OnAction" />
+        <MenuItem Header="Run _Selection" InputGesture="F8" Tag="RunSelection" Click="OnAction" />
+        <MenuItem Header="_Stop Operation" InputGesture="Ctrl+Pause" Tag="Stop" Click="OnAction" />
+        <Separator />
+        <MenuItem Header="Start _IntelliSense" InputGesture="Ctrl+Space" Tag="Complete" Click="OnAction" />
+        <MenuItem Header="_Snippets..." InputGesture="Ctrl+J" Tag="Snippets" Click="OnAction" />
+        <MenuItem Header="Clear _Console Pane" InputGesture="Ctrl+L" Tag="Clear" Click="OnAction" />
+        <Separator />
+        <MenuItem Header="Load PowerShell _Profiles" Tag="Profiles" Click="OnAction" />
+        <MenuItem Header="Enable Local Scripts (Process Only)..." Tag="ExecutionPolicy" Click="OnAction" />
+        <MenuItem Header="_Options..." Tag="Options" Click="OnAction" />
+      </MenuItem>
+      <MenuItem Header="_Debug">
+        <MenuItem Header="Toggle _Breakpoint" InputGesture="F9" Tag="Breakpoint" Click="OnAction" />
+        <MenuItem Header="_Remove All Breakpoints" InputGesture="Ctrl+Shift+F9" Tag="RemoveBreakpoints" Click="OnAction" />
+        <Separator />
+        <MenuItem Header="Step _Into" InputGesture="F11" Tag="StepInto" Click="OnAction" />
+        <MenuItem Header="Step _Over" InputGesture="F10" Tag="StepOver" Click="OnAction" />
+        <MenuItem Header="Step O_ut" InputGesture="Shift+F11" Tag="StepOut" Click="OnAction" />
+        <MenuItem Header="_Continue" InputGesture="F5" Tag="Continue" Click="OnAction" />
+        <MenuItem Header="_Stop Debugger" InputGesture="Shift+F5" Tag="Stop" Click="OnAction" />
+      </MenuItem>
+      <MenuItem Header="_Add-ons">
+        <MenuItem Header="Show _Commands" Tag="Commands" Click="OnAction" />
+      </MenuItem>
+      <MenuItem Header="_Help">
+        <MenuItem Header="PowerShell Command _Help" InputGesture="F1" Tag="Help" Click="OnAction" />
+        <MenuItem Header="_About Iseberg" Tag="About" Click="OnAction" />
+      </MenuItem>
+    </Menu>
+    <Border Grid.Row="1" BorderBrush="#C6C6C6" BorderThickness="0,1,0,1" Padding="4,1">
+      <StackPanel Orientation="Horizontal" Spacing="1">
+        <Button Classes="tool" Tag="New" Click="OnAction" ToolTip.Tip="New (Ctrl+N)" AutomationProperties.Name="New script"><local:ToolbarIcon Kind="New" /></Button>
+        <Button Classes="tool" Tag="Open" Click="OnAction" ToolTip.Tip="Open (Ctrl+O)" AutomationProperties.Name="Open script"><local:ToolbarIcon Kind="Open" /></Button>
+        <Button Classes="tool" Tag="Save" Click="OnAction" ToolTip.Tip="Save (Ctrl+S)" AutomationProperties.Name="Save script"><local:ToolbarIcon Kind="Save" /></Button>
+        <Button Classes="tool" Tag="SaveAll" Click="OnAction" ToolTip.Tip="Save all" AutomationProperties.Name="Save all"><local:ToolbarIcon Kind="SaveAll" /></Button>
+        <Border Width="1" Margin="5,3" Background="#BABABA" />
+        <Button Classes="tool" Tag="Cut" Click="OnAction" ToolTip.Tip="Cut (Ctrl+X)" AutomationProperties.Name="Cut"><local:ToolbarIcon Kind="Cut" /></Button>
+        <Button Classes="tool" Tag="Copy" Click="OnAction" ToolTip.Tip="Copy (Ctrl+C)" AutomationProperties.Name="Copy"><local:ToolbarIcon Kind="Copy" /></Button>
+        <Button Classes="tool" Tag="Paste" Click="OnAction" ToolTip.Tip="Paste (Ctrl+V)" AutomationProperties.Name="Paste"><local:ToolbarIcon Kind="Paste" /></Button>
+        <Border Width="1" Margin="5,3" Background="#BABABA" />
+        <Button Classes="tool" Tag="Undo" Click="OnAction" ToolTip.Tip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo"><local:ToolbarIcon Kind="Undo" /></Button>
+        <Button Classes="tool" Tag="Redo" Click="OnAction" ToolTip.Tip="Redo (Ctrl+Y)" AutomationProperties.Name="Redo"><local:ToolbarIcon Kind="Redo" /></Button>
+        <Border Width="1" Margin="5,3" Background="#BABABA" />
+        <Button x:Name="RunButton" Classes="tool" Tag="Run" Click="OnAction" ToolTip.Tip="Run script / Continue (F5)" AutomationProperties.Name="Run script"><local:ToolbarIcon Kind="Run" /></Button>
+        <Button x:Name="SelectionButton" Classes="tool" Tag="RunSelection" Click="OnAction" ToolTip.Tip="Run selection (F8)" AutomationProperties.Name="Run selection"><local:ToolbarIcon Kind="Selection" /></Button>
+        <Button x:Name="StopButton" Classes="tool" Tag="Stop" Click="OnAction" ToolTip.Tip="Stop operation (Ctrl+Break)" AutomationProperties.Name="Stop operation"><local:ToolbarIcon Kind="Stop" /></Button>
+        <Border Width="1" Margin="5,3" Background="#BABABA" />
+        <Button Classes="tool" Tag="Top" Click="OnAction" ToolTip.Tip="Script pane top (Ctrl+1)" AutomationProperties.Name="Script pane top"><local:ToolbarIcon Kind="Top" /></Button>
+        <Button Classes="tool" Tag="Right" Click="OnAction" ToolTip.Tip="Script pane right (Ctrl+2)" AutomationProperties.Name="Script pane right"><local:ToolbarIcon Kind="Right" /></Button>
+        <Button Classes="tool" Tag="Maximized" Click="OnAction" ToolTip.Tip="Script pane maximized (Ctrl+3)" AutomationProperties.Name="Script pane maximized"><local:ToolbarIcon Kind="Maximized" /></Button>
+        <Button Classes="tool" Tag="Commands" Click="OnAction" ToolTip.Tip="Show commands (Ctrl+Shift+C)" AutomationProperties.Name="Commands pane"><local:ToolbarIcon Kind="Commands" /></Button>
+      </StackPanel>
+    </Border>
+    <TabStrip Grid.Row="2" x:Name="SessionTabs" IsVisible="{Binding HasMultipleSessions}" ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}" SelectionChanged="OnSessionChanged" Background="#F0F0F0">
+      <TabStrip.ItemTemplate>
+        <DataTemplate>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+            <Button Classes="close" Content="x" Click="OnCloseSession" ToolTip.Tip="Close PowerShell tab" />
+          </StackPanel>
+        </DataTemplate>
+      </TabStrip.ItemTemplate>
+    </TabStrip>
+    <Grid Grid.Row="3" x:Name="OuterGrid" ColumnDefinitions="*,5,290">
+      <Grid x:Name="PaneGrid" RowDefinitions="3*,5,2*" ColumnDefinitions="*">
+        <Grid x:Name="ScriptPane" RowDefinitions="Auto,*,Auto" Background="White">
+          <Border BorderBrush="#C6C6C6" BorderThickness="0,0,0,1" Background="#F0F0F0">
+            <TabStrip x:Name="FileTabs" ItemsSource="{Binding SelectedSession.Files}" SelectedItem="{Binding SelectedSession.SelectedFile, Mode=OneWay}" SelectionChanged="OnFileChanged">
+              <TabStrip.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="{Binding File.Title}" VerticalAlignment="Center" />
+                    <Button Classes="close" Content="x" Click="OnCloseFile" ToolTip.Tip="Close script" />
+                  </StackPanel>
+                </DataTemplate>
+              </TabStrip.ItemTemplate>
+            </TabStrip>
+          </Border>
+          <edit:TextEditor x:Name="ScriptEditor" Grid.Row="1" ShowLineNumbers="True"
+                           FontFamily="Consolas, Cascadia Code, DejaVu Sans Mono, Menlo, monospace"
+                           FontSize="16" Background="White" Foreground="Black"
+                           HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                           AutomationProperties.Name="Script editor" />
+          <TextBlock Grid.Row="2" x:Name="Diagnostics" Foreground="#A00000" Background="#FFF4F4" Padding="5,2" IsVisible="False" TextWrapping="Wrap" MaxHeight="45" />
+        </Grid>
+        <GridSplitter x:Name="PaneSplitter" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="#D0D0D0" />
+        <Grid x:Name="ConsolePane" Grid.Row="2" RowDefinitions="Auto,Auto,*" Background="#012456">
+          <edit:TextEditor x:Name="ConsoleOutput" IsReadOnly="True"
+                           FontFamily="Consolas, Cascadia Code, DejaVu Sans Mono, Menlo, monospace"
+                           FontSize="16" Background="#012456" Foreground="White"
+                           Height="80"
+                           WordWrap="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                           AutomationProperties.Name="Console output" />
+          <Grid Grid.Row="1" x:Name="PromptInputPanel" ColumnDefinitions="Auto,*" Margin="5,0,5,4">
+            <TextBlock x:Name="PromptText" Text="PS&gt; " Foreground="White" VerticalAlignment="Top" Margin="0,5,0,0"
+                       FontFamily="Consolas, Cascadia Code, DejaVu Sans Mono, Menlo, monospace" FontSize="16" />
+            <TextBox x:Name="ConsoleInput" Grid.Column="1" AcceptsReturn="True" TextWrapping="Wrap"
+                     Background="Transparent" Foreground="White" BorderThickness="0" Padding="0,5"
+                     MaxHeight="150" MinHeight="26"
+                     FontFamily="Consolas, Cascadia Code, DejaVu Sans Mono, Menlo, monospace" FontSize="16"
+                     AutomationProperties.Name="Console input" />
+          </Grid>
+          <Border Grid.Row="2" x:Name="ProgressPanel" IsVisible="False" Background="#ECECEC" Padding="8,4" VerticalAlignment="Bottom">
+            <StackPanel Spacing="3">
+              <TextBlock x:Name="ProgressText" />
+              <ProgressBar x:Name="ScriptProgress" Minimum="0" Maximum="100" Height="8" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Grid>
+      <GridSplitter Grid.Column="1" x:Name="CommandSplitter" Width="5" HorizontalAlignment="Stretch" Background="#D0D0D0" />
+      <Border Grid.Column="2" x:Name="CommandsPane" Background="#F0F0F0" BorderBrush="#A0A0A0" BorderThickness="1,0,0,0">
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="7">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Text="Commands" FontWeight="Bold" Margin="0,2,0,8" />
+            <Button Grid.Column="1" Classes="close" Content="x" Tag="Commands" Click="OnAction" />
+          </Grid>
+          <Grid Grid.Row="1" ColumnDefinitions="Auto,*" Margin="0,0,0,7">
+            <TextBlock Text="Modules:" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <ComboBox x:Name="ModuleFilter" Grid.Column="1" SelectionChanged="OnCommandFilterChanged" MinHeight="26" HorizontalAlignment="Stretch" />
+          </Grid>
+          <TextBox Grid.Row="2" x:Name="CommandSearch" Watermark="Name" TextChanged="OnCommandSearchChanged" Margin="0,0,0,7" AutomationProperties.Name="Command search" />
+          <ListBox Grid.Row="3" x:Name="CommandList" Background="White" BorderThickness="1" BorderBrush="#A0A0A0" SelectionChanged="OnCommandSelected" DoubleTapped="OnInsertCommand">
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Name}" FontSize="12" Foreground="Black" />
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <TextBox Grid.Row="4" x:Name="CommandSyntax" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Height="100" Margin="0,7" FontSize="11" Background="White" AutomationProperties.Name="Command syntax" />
+          <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="5">
+            <Button Content="Refresh" Tag="RefreshCommands" Click="OnAction" />
+            <Button Content="Help" Tag="CommandHelp" Click="OnAction" />
+            <Button Content="Insert" Tag="InsertCommand" Click="OnAction" />
+            <Button x:Name="CommandRunButton" Content="Run" Tag="RunCommand" Click="OnAction" />
+          </StackPanel>
+        </Grid>
+      </Border>
+    </Grid>
+    <Border Grid.Row="4" BorderThickness="0,1,0,0" BorderBrush="#C6C6C6" Background="#F0F0F0">
+      <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="5,2">
+        <TextBlock x:Name="StatusText" Text="Starting PowerShell..." VerticalAlignment="Center" />
+        <TextBlock Grid.Column="1" x:Name="CaretText" Text="Ln 1  Col 1" Width="125" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="2" x:Name="EncodingText" Text="UTF-8" Width="90" VerticalAlignment="Center" />
+        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">
+          <TextBlock x:Name="ZoomText" Text="100%" VerticalAlignment="Center" Width="38" />
+          <Slider x:Name="ZoomSlider" Minimum="20" Maximum="400" Value="100" Width="110" ValueChanged="OnZoomChanged" />
+        </StackPanel>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

@@ -1,0 +1,50 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Iseberg: Debug",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build: Debug",
+      "program": "${workspaceFolder}${pathSeparator}src${pathSeparator}Iseberg${pathSeparator}bin${pathSeparator}Debug${pathSeparator}net10.0${pathSeparator}Iseberg.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "stopAtEntry": false,
+      "justMyCode": true
+    },
+    {
+      "name": "Iseberg: Release",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build: Release",
+      "program": "${workspaceFolder}${pathSeparator}src${pathSeparator}Iseberg${pathSeparator}bin${pathSeparator}Release${pathSeparator}net10.0${pathSeparator}Iseberg.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "stopAtEntry": false,
+      "justMyCode": true
+    },
+    {
+      "name": "Iseberg: Debug current script",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build: Debug",
+      "program": "${workspaceFolder}${pathSeparator}src${pathSeparator}Iseberg${pathSeparator}bin${pathSeparator}Debug${pathSeparator}net10.0${pathSeparator}Iseberg.dll",
+      "args": [
+        "${file}"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "stopAtEntry": false,
+      "justMyCode": true
+    },
+    {
+      "name": "Iseberg: Attach",
+      "type": "coreclr",
+      "request": "attach",
+      "processId": "${command:pickProcess}",
+      "justMyCode": true
+    }
+  ]
+}
