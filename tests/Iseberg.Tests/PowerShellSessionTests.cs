@@ -158,6 +158,230 @@ public sealed class PowerShellSessionTests
     }
 
     [Fact]
+    public async Task ConsoleShowCommandDoesNotInvokeTheUnavailableNativeDialog()
+    {
+        await using var session = new PowerShellSession();
+        var output = Capture(session);
+        ShowCommandRequest? shown = null;
+        session.ShowCommandRequested += request =>
+        {
+            shown = request;
+            request.Response.TrySetResult(null);
+        };
+        await session.InitializeAsync();
+        await session.ExecuteAsync("Show-Command Get-Process").WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error &&
+            entry.Text.Contains("Exception has been thrown by the target of an invocation."));
+        Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error);
+        Assert.NotNull(shown);
+        Assert.Equal("Get-Process", shown.Command!.Name);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConsoleShowCommandRunsOrReturnsTextInTheOriginatingPipeline(bool passThru)
+    {
+        await using var session = new PowerShellSession();
+        var output = Capture(session);
+        await session.InitializeAsync();
+        await session.ExecuteAsync("""
+            $showCommandValue = 21
+            function Test-ShowCommand {
+                [CmdletBinding()] param([int] $Value)
+                [pscustomobject]@{ Answer = $Value * 2 }
+            }
+            Set-Alias Invoke-ShowCommand Test-ShowCommand
+            """);
+        string? generated = null;
+        session.ShowCommandRequested += request =>
+        {
+            Assert.Equal(passThru, request.PassThru);
+            var form = new CommandForm(request.Command!);
+            form.Value("Value").Included = true;
+            form.Value("Value").Text = "$showCommandValue";
+            form.Value("Value").IsExpression = true;
+            generated = form.Build().Script;
+            request.Response.TrySetResult(generated);
+        };
+        await session.ExecuteAsync("$result = Show-Command Invoke-ShowCommand" + (passThru ? " -PassThru" : "") +
+            "; $result.GetType().Name; $result; if ($result.Answer) { \"answer=$($result.Answer)\" }")
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error);
+        if (passThru)
+        {
+            Assert.Contains("String", Text(output));
+            Assert.Contains(generated!, Text(output));
+            Assert.DoesNotContain("answer=42", Text(output));
+        }
+        else
+        {
+            Assert.Contains("PSCustomObject", Text(output));
+            Assert.Contains("answer=42", Text(output));
+        }
+        Assert.Equal(SessionState.Ready, session.State);
+    }
+
+    [Fact]
+    public async Task ConsoleShowCommandWithoutNameSelectsACommandBeforeOpeningItsForm()
+    {
+        await using var session = new PowerShellSession();
+        var output = Capture(session);
+        await session.InitializeAsync();
+        var requests = new List<ShowCommandRequest>();
+        session.ShowCommandRequested += request =>
+        {
+            requests.Add(request);
+            if (request.Command is null)
+            {
+                Assert.Contains(request.Commands, command => command.Name == "Get-Process");
+                request.Response.TrySetResult("Microsoft.PowerShell.Management\\Get-Process");
+            }
+            else
+            {
+                Assert.Equal("Get-Process", request.Command.Name);
+                Assert.Equal("Microsoft.PowerShell.Management\\Get-Process", request.Command.InvocationName);
+                Assert.All(request.Command.ParameterSets, set => Assert.DoesNotContain(set.Parameters, parameter => parameter.IsCommon));
+                Assert.Contains("Get-Process", request.HelpText);
+                Assert.Equal(550, request.Width);
+                Assert.Equal(650, request.Height);
+                request.Response.TrySetResult(null);
+            }
+        };
+        await session.ExecuteAsync("Show-Command -NoCommonParameter -Width 550 -Height 650")
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error);
+        Assert.Equal(2, requests.Count);
+    }
+
+    [Theory]
+    [InlineData("Show-Command Get-Process")]
+    [InlineData("Show-Command")]
+    public async Task StopCancelsAConsoleShowCommandRequestWithoutHanging(string command)
+    {
+        await using var session = new PowerShellSession();
+        await session.InitializeAsync();
+        await session.ExecuteAsync("$retained = 123");
+        var shown = new TaskCompletionSource<ShowCommandRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.ShowCommandRequested += request => shown.TrySetResult(request);
+        var execution = session.ExecuteAsync(command);
+        var request = await shown.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await session.StopAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        await execution.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(request.Response.Task.IsCanceled);
+        Assert.Equal(SessionState.Ready, session.State);
+        var output = Capture(session);
+        await session.ExecuteAsync("$retained");
+        Assert.Contains("123", Text(output));
+        Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error);
+    }
+
+    [Fact]
+    public async Task ConsoleShowCommandWithoutDesktopHandlerReportsAnExplicitHostError()
+    {
+        await using var session = new PowerShellSession();
+        var output = Capture(session);
+        await session.InitializeAsync();
+        await session.ExecuteAsync("Show-Command Get-Process").WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Contains(output, entry => entry.Kind == OutputKind.Error &&
+            entry.Text.Contains("No Show-Command handler is attached"));
+        Assert.Equal(SessionState.Ready, session.State);
+    }
+
+    [Fact]
+    public async Task ConsoleShowCommandKeepsPrecedenceAfterRepeatedUtilityImports()
+    {
+        await using var session = new PowerShellSession();
+        await session.InitializeAsync();
+        var showCount = 0;
+        session.ShowCommandRequested += request =>
+        {
+            showCount++;
+            Assert.Equal("Get-Process", request.Command!.Name);
+            request.Response.TrySetResult(null);
+        };
+        var output = Capture(session);
+        await session.ExecuteAsync("Show-Command Get-Process; Import-Module Microsoft.PowerShell.Utility -Force; Show-Command Get-Process")
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(2, showCount);
+        Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error);
+    }
+
+    [Fact]
+    public async Task ConsoleShowCommandMissingNameReportsAnErrorWithoutOpeningAForm()
+    {
+        await using var session = new PowerShellSession();
+        await session.InitializeAsync();
+        var shown = false;
+        session.ShowCommandRequested += request => { shown = true; request.Response.TrySetResult(null); };
+        var output = Capture(session);
+        await session.ExecuteAsync("Show-Command No-IsebergCommand").WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(shown);
+        Assert.Contains(output, entry => entry.Kind == OutputKind.Error && entry.Text.Contains("No-IsebergCommand"));
+        Assert.Equal(SessionState.Ready, session.State);
+    }
+
+    [Fact]
+    public async Task StopAlsoCancelsTheCommandRunFromTheShowCommandForm()
+    {
+        await using var session = new PowerShellSession();
+        await session.InitializeAsync();
+        await session.ExecuteAsync("function Test-ShowCommand { Write-Host 'show-command-running'; Start-Sleep -Seconds 30 }");
+        session.ShowCommandRequested += request => request.Response.TrySetResult("& 'Test-ShowCommand'");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.Output += entry =>
+        {
+            if (entry.Kind == OutputKind.Output && entry.Text.Contains("show-command-running"))
+                started.TrySetResult();
+        };
+        var execution = session.ExecuteAsync("Show-Command Test-ShowCommand");
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await session.StopAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        await execution.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(SessionState.Ready, session.State);
+    }
+
+    [Fact]
+    public async Task ConsoleShowCommandPreservesTheSelectedCommandsErrorAndWarningStreams()
+    {
+        await using var session = new PowerShellSession();
+        await session.InitializeAsync();
+        await session.ExecuteAsync("""
+            function Test-ShowCommand {
+                Write-Error 'show-command-error'
+                Write-Warning 'show-command-warning'
+                Write-Output 'show-command-output'
+            }
+            """);
+        session.ShowCommandRequested += request => request.Response.TrySetResult("& 'Test-ShowCommand'");
+        var output = Capture(session);
+        await session.ExecuteAsync("Show-Command Test-ShowCommand").WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Contains(output, entry => entry.Kind == OutputKind.Error && entry.Text.Contains("show-command-error"));
+        Assert.Contains(output, entry => entry.Kind == OutputKind.Warning && entry.Text.Contains("show-command-warning"));
+        Assert.Contains(output, entry => entry.Kind == OutputKind.Output && entry.Text.Contains("show-command-output"));
+    }
+
+    [Fact]
+    public async Task ConsoleShowCommandCancelAndSelectedCommandErrorsLeaveSessionUsable()
+    {
+        await using var session = new PowerShellSession();
+        await session.InitializeAsync();
+        await session.ExecuteAsync("function Test-ShowCommand { throw 'selected-command-error' }");
+        var showCount = 0;
+        session.ShowCommandRequested += request =>
+            request.Response.TrySetResult(++showCount == 1 ? null : "& 'Test-ShowCommand'");
+        var output = Capture(session);
+        await session.ExecuteAsync("Show-Command Test-ShowCommand; 'after-cancel'").WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Contains("after-cancel", Text(output));
+        Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error);
+        await session.ExecuteAsync("Show-Command Test-ShowCommand").WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Contains(output, entry => entry.Kind == OutputKind.Error && entry.Text.Contains("selected-command-error"));
+        await session.ExecuteAsync("'after-error'");
+        Assert.Contains("after-error", Text(output));
+        Assert.Equal(SessionState.Ready, session.State);
+    }
+
+    [Fact]
     public async Task SavedScriptHasRealScriptRootAndRetainsVariables()
     {
         var directory = Path.Combine(Path.GetTempPath(), "iseberg-test-" + Guid.NewGuid().ToString("N"));

@@ -10,7 +10,7 @@ public sealed record ShowCommandResult(string Script, bool Run);
 
 public sealed class ShowCommandWindow : Window
 {
-    public ShowCommandWindow(CommandForm form, bool canInsert, Func<Window, Task>? showHelp = null)
+    public ShowCommandWindow(CommandForm form, bool canInsert, Func<Window, Task>? showHelp = null, bool passThru = false)
     {
         Title = UiText.Get("ShowCommand").Replace("_", "").TrimEnd('.');
         Width = 620;
@@ -21,7 +21,7 @@ public sealed class ShowCommandWindow : Window
         ShowInTaskbar = false;
         var view = new CommandFormView { Name = "ShowCommandForm" };
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
-        var run = new Button { Name = "ShowCommandRun", Content = UiText.Get("RunButton"), IsDefault = true };
+        var run = new Button { Name = "ShowCommandRun", Content = UiText.Get(passThru ? "OK" : "RunButton"), IsDefault = true };
         var insert = new Button { Name = "ShowCommandInsert", Content = UiText.Get("Insert") };
         var copy = new Button { Name = "ShowCommandCopy", Content = UiText.Get("CopyCommand") };
         var help = new Button { Content = UiText.Get("HelpButton"), IsEnabled = showHelp is not null };

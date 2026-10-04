@@ -352,6 +352,118 @@ public sealed class CommandFormTests
     }
 
     [AvaloniaFact]
+    public async Task ConsoleEnterShowCommandGetProcessOpensAndRunsTheAvaloniaForm()
+    {
+        var window = new MainWindow([], initializeOnOpen: false);
+        var session = new SessionModel("First");
+        try
+        {
+            await session.Engine.InitializeAsync();
+            window.Workbench.Sessions.Add(session);
+            window.Workbench.SelectedSession = session;
+            window.Show();
+            var output = new ConcurrentQueue<OutputEntry>();
+            session.Engine.Output += output.Enqueue;
+            var console = window.FindControl<AvaloniaEdit.TextEditor>("ConsoleEditor")!;
+            session.Input = "Show-Command Get-Process";
+            console.CaretOffset = console.Document.TextLength;
+            console.TextArea.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            await WaitFor(() => window.OwnedWindows.OfType<ShowCommandWindow>().Any());
+            var dialog = window.OwnedWindows.OfType<ShowCommandWindow>().Single();
+            var view = dialog.FindControl<CommandFormView>("ShowCommandForm")!;
+            Assert.Equal("Get-Process", view.Form!.Description.Name);
+            var set = view.Form.Description.ParameterSets.First(s => s.Parameters.Any(p => p.Name == "Id"));
+            view.FindControl<ComboBox>("ParameterSetPicker")!.SelectedItem = set;
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Input(Parameter(view, "Id"), "Id").Text = Environment.ProcessId.ToString();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Assert.True(view.Result!.IsValid);
+            dialog.FindControl<Button>("ShowCommandRun")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitFor(() => session.Engine.State == SessionState.Ready);
+            Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error);
+            Assert.Contains(output, entry => entry.Kind == OutputKind.Output && entry.Text.Contains(Environment.ProcessId.ToString()));
+            Assert.Empty(window.OwnedWindows.OfType<ShowCommandWindow>());
+        }
+        finally
+        {
+            window.Close();
+            await session.Engine.DisposeAsync();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task ConsoleShowCommandPassThruReturnsTextAndStopClosesThePendingDialog()
+    {
+        var window = new MainWindow([], initializeOnOpen: false);
+        var session = new SessionModel("First");
+        try
+        {
+            await session.Engine.InitializeAsync();
+            await session.Engine.ExecuteAsync(Function);
+            window.Workbench.Sessions.Add(session);
+            window.Workbench.SelectedSession = session;
+            window.Show();
+            var output = new ConcurrentQueue<OutputEntry>();
+            session.Engine.Output += output.Enqueue;
+            var execution = session.Engine.ExecuteAsync("Show-Command Test-IsebergForm -PassThru");
+            await WaitFor(() => window.OwnedWindows.OfType<ShowCommandWindow>().Any());
+            var dialog = window.OwnedWindows.OfType<ShowCommandWindow>().Single();
+            var view = dialog.FindControl<CommandFormView>("ShowCommandForm")!;
+            Input(Parameter(view, "Name"), "Name").Text = "Not executed";
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            var expected = view.GetCommand();
+            Assert.Equal(UiText.Get("OK"), dialog.FindControl<Button>("ShowCommandRun")!.Content);
+            dialog.FindControl<Button>("ShowCommandRun")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Contains(output, entry => entry.Kind == OutputKind.Output && entry.Text.Contains(expected));
+            Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Output && entry.Text.Contains("name=Not executed"));
+            Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error);
+            execution = session.Engine.ExecuteAsync("Show-Command Get-Process");
+            await WaitFor(() => window.OwnedWindows.OfType<ShowCommandWindow>().Any());
+            await session.Engine.StopAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            await WaitFor(() => !window.OwnedWindows.OfType<ShowCommandWindow>().Any());
+            Assert.Equal(SessionState.Ready, session.Engine.State);
+        }
+        finally
+        {
+            window.Close();
+            await session.Engine.DisposeAsync();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task ConsoleShowCommandWithoutNameUsesTheSearchablePicker()
+    {
+        var window = new MainWindow([], initializeOnOpen: false);
+        var session = new SessionModel("First");
+        try
+        {
+            await session.Engine.InitializeAsync();
+            window.Workbench.Sessions.Add(session);
+            window.Workbench.SelectedSession = session;
+            window.Show();
+            var execution = session.Engine.ExecuteAsync("Show-Command");
+            await WaitFor(() => window.OwnedWindows.OfType<ShowCommandPickerWindow>().Any());
+            var picker = window.OwnedWindows.OfType<ShowCommandPickerWindow>().Single();
+            picker.FindControl<TextBox>("ShowCommandSearch")!.Text = "Get-Process";
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            picker.FindControl<Button>("ShowCommandSelect")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitFor(() => window.OwnedWindows.OfType<ShowCommandWindow>().Any());
+            var dialog = window.OwnedWindows.OfType<ShowCommandWindow>().Single();
+            Assert.Equal("Get-Process", dialog.FindControl<CommandFormView>("ShowCommandForm")!.Form!.Description.Name);
+            dialog.Close();
+            await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(SessionState.Ready, session.Engine.State);
+        }
+        finally
+        {
+            window.Close();
+            await session.Engine.DisposeAsync();
+        }
+    }
+
+    [AvaloniaFact]
     public async Task ControlF1OpensTheCommandAtTheArgumentAndRunsTheGeneratedDialogCommand()
     {
         var window = new MainWindow([], initializeOnOpen: false);

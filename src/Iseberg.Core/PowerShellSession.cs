@@ -11,6 +11,7 @@ public sealed class PowerShellSession : IAsyncDisposable
     private readonly Runspace runspace;
     private PowerShell? active;
     private InputRequest? pendingInput;
+    private ShowCommandRequest? pendingShowCommand;
     private DebuggerResumeAction resumeAction;
     private bool disposed;
     private bool stopRequested;
@@ -18,6 +19,7 @@ public sealed class PowerShellSession : IAsyncDisposable
     public event Action<OutputEntry>? Output;
     public event Action<SessionState>? StateChanged;
     public event Action<InputRequest>? InputRequested;
+    public event Action<ShowCommandRequest>? ShowCommandRequested;
     public event Action<ProgressUpdate>? ProgressChanged;
     public event Action<DebugLocation?>? DebuggerStopped;
     public event Action? ConsoleCleared;
@@ -28,7 +30,7 @@ public sealed class PowerShellSession : IAsyncDisposable
     public PowerShellSession()
     {
         var host = new WorkbenchHost(entry => Output?.Invoke(entry), ReadInput,
-            update => ProgressChanged?.Invoke(update), () => ConsoleCleared?.Invoke());
+            update => ProgressChanged?.Invoke(update), () => ConsoleCleared?.Invoke(), ReadShowCommand);
         var initialState = InitialSessionState.CreateDefault2();
         // The default Unix function clears a terminal instead of this graphical host.
         initialState.Commands.Remove("Clear-Host", typeof(SessionStateFunctionEntry));
@@ -48,6 +50,20 @@ public sealed class PowerShellSession : IAsyncDisposable
         // These binary cmdlets must be available even when Restricted prevents loading module type data.
         initialState.Commands.Add(new SessionStateCmdletEntry("Set-ExecutionPolicy", typeof(Microsoft.PowerShell.Commands.SetExecutionPolicyCommand), null));
         initialState.Commands.Add(new SessionStateCmdletEntry("Get-ExecutionPolicy", typeof(Microsoft.PowerShell.Commands.GetExecutionPolicyCommand), null));
+        initialState.Commands.Add(new SessionStateCmdletEntry("Show-IsebergCommand", typeof(ShowCommandCommand), null));
+        // A function keeps precedence when Utility is auto-imported by commands such as Get-Help.
+        initialState.Commands.Remove("Show-Command", typeof(SessionStateFunctionEntry));
+        initialState.Commands.Add(new SessionStateFunctionEntry("Show-Command", """
+            [CmdletBinding()]
+            param(
+                [Parameter(Position=0)] [ValidateNotNullOrEmpty()] [string] $Name,
+                [switch] $PassThru,
+                [switch] $NoCommonParameter,
+                [ValidateRange(300, [int]::MaxValue)] [int] $Width = 620,
+                [ValidateRange(300, [int]::MaxValue)] [int] $Height = 700
+            )
+            Show-IsebergCommand @PSBoundParameters
+            """));
         runspace = RunspaceFactory.CreateRunspace(host, initialState);
         runspace.ThreadOptions = PSThreadOptions.ReuseThread;
         if (OperatingSystem.IsWindows())
@@ -144,6 +160,7 @@ public sealed class PowerShellSession : IAsyncDisposable
         {
             stopRequested = true;
             pendingInput?.Response.TrySetCanceled();
+            pendingShowCommand?.Response.TrySetCanceled();
             resumeAction = DebuggerResumeAction.Stop;
             debuggerResume.Set();
             if (active is { } shell)
@@ -189,10 +206,14 @@ public sealed class PowerShellSession : IAsyncDisposable
         {
             var commands = shell.AddCommand("Get-Command").Invoke<CommandInfo>();
             ThrowQueryErrors(shell);
-            return commands.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(c => new CommandDescription(c.Name, c.ModuleName, c.CommandType.ToString(), c.Definition))
-                .DistinctBy(c => c.Name).ToArray();
+            return DescribeCommands(commands);
         });
+
+    internal static IReadOnlyList<CommandDescription> DescribeCommands(IEnumerable<CommandInfo> commands) =>
+        commands.OrderBy(command => command.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(command => new CommandDescription(command.Name, command.ModuleName,
+                command.CommandType.ToString(), command.Definition))
+            .DistinctBy(command => command.Name).ToArray();
 
     public Task<string> GetHelpAsync(string name) => QueryAsync(shell =>
     {
@@ -218,6 +239,11 @@ public sealed class PowerShellSession : IAsyncDisposable
     {
         var help = shell.AddCommand("Get-Help").AddParameter("Name", name).Invoke();
         ThrowQueryErrors(shell);
+        return FindHelpUri(help);
+    });
+
+    internal static Uri? FindHelpUri(IEnumerable<PSObject> help)
+    {
         foreach (var entry in help)
         {
             if (entry.Properties["RelatedLinks"]?.Value is not PSObject links) continue;
@@ -229,7 +255,7 @@ public sealed class PowerShellSession : IAsyncDisposable
             }
         }
         return null;
-    });
+    }
 
     private async Task<T> QueryAsync<T>(Func<PowerShell, T> query, CancellationToken cancellationToken = default,
         bool waitForGate = false)
@@ -293,6 +319,24 @@ public sealed class PowerShellSession : IAsyncDisposable
         }
         catch (OperationCanceledException) { throw new PipelineStoppedException(); }
         finally { lock (sync) pendingInput = null; }
+    }
+
+    private string? ReadShowCommand(ShowCommandRequest request)
+    {
+        lock (sync)
+        {
+            if (stopRequested) throw new PipelineStoppedException();
+            pendingShowCommand = request;
+        }
+        try
+        {
+            if (ShowCommandRequested is null)
+                throw new PSNotSupportedException("No Show-Command handler is attached to this host.");
+            ShowCommandRequested.Invoke(request);
+            return request.Response.Task.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException) { throw new PipelineStoppedException(); }
+        finally { lock (sync) pendingShowCommand = null; }
     }
 
     private void OnDebuggerStop(object? sender, DebuggerStopEventArgs e)

@@ -48,6 +48,7 @@ public sealed partial class MainWindow : Window
     private int commandRequestVersion;
     private CancellationTokenSource? commandFormCancellation;
     private bool updatingCommandList;
+    private readonly Dictionary<SessionModel, Action<ShowCommandRequest>> showCommandHandlers = [];
     private bool completionPending;
     private IReadOnlySet<CompletionResultType>? automaticCompletionFilter;
     private TextEditor? automaticCompletionEditor;
@@ -64,6 +65,19 @@ public sealed partial class MainWindow : Window
         Icon = AppIcon.Create();
         DataContext = Workbench;
         CommandForm.CommandChanged += RefreshState;
+        Workbench.Sessions.CollectionChanged += (_, e) =>
+        {
+            foreach (var session in e.OldItems?.OfType<SessionModel>() ?? [])
+                if (showCommandHandlers.Remove(session, out var handler))
+                    session.Engine.ShowCommandRequested -= handler;
+            foreach (var session in e.NewItems?.OfType<SessionModel>() ?? [])
+            {
+                Action<ShowCommandRequest> handler = request =>
+                    Dispatcher.UIThread.Post(() => ShowConsoleCommand(session, request));
+                showCommandHandlers.Add(session, handler);
+                session.Engine.ShowCommandRequested += handler;
+            }
+        };
         ScriptEditor.Options.IndentationSize = 4;
         ScriptEditor.Options.ConvertTabsToSpaces = true;
         ScriptEditor.Options.HighlightCurrentLine = true;
@@ -131,6 +145,9 @@ public sealed partial class MainWindow : Window
             completion?.Close();
             commandFormCancellation?.Cancel();
             commandFormCancellation?.Dispose();
+            foreach (var (session, handler) in showCommandHandlers)
+                session.Engine.ShowCommandRequested -= handler;
+            showCommandHandlers.Clear();
             DesktopTheme.Changed -= ApplyAppearance;
         };
         ApplySettings();
@@ -1147,6 +1164,54 @@ public sealed partial class MainWindow : Window
         }
         else InsertCommandText(result.Script);
     }
+
+    private async void ShowConsoleCommand(SessionModel session, ShowCommandRequest request)
+    {
+        if (request.Response.Task.IsCompleted) return;
+        try
+        {
+            Workbench.SelectedSession = session;
+            DisplaySession();
+            if (request.Command is null)
+            {
+                var picker = new ShowCommandPickerWindow(request.Commands);
+                CloseWhenRequestCompletes(picker, request);
+                request.Response.TrySetResult(await picker.ShowDialog<string?>(this));
+                return;
+            }
+            var window = new ShowCommandWindow(new Core.CommandForm(request.Command),
+                displayedFile is not null && !ScriptEditor.IsReadOnly,
+                async owner =>
+                {
+                    if (settings.UseLocalHelp)
+                        await Dialogs.ShowTextAsync(owner, "PowerShell help - " + request.Command.Name, request.HelpText);
+                    else
+                    {
+                        var uri = request.HelpUri ?? throw new InvalidOperationException(
+                            "This command does not publish an online help URL. Enable local help in Options.");
+                        if (!await Launcher.LaunchUriAsync(uri))
+                            throw new InvalidOperationException("The system could not open the online help URL.");
+                    }
+                }, request.PassThru)
+            {
+                Width = request.Width, Height = request.Height
+            };
+            CloseWhenRequestCompletes(window, request);
+            var result = await window.ShowDialog<ShowCommandResult?>(this);
+            if (!request.Response.Task.IsCompleted && result is { Run: false })
+                InsertCommandText(result.Script);
+            request.Response.TrySetResult(result is { Run: true } ? result.Script : null);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or NotSupportedException or RuntimeException)
+        {
+            System.Diagnostics.Trace.TraceError("Console Show-Command failed: {0}", exception);
+            request.Response.TrySetException(exception);
+        }
+    }
+
+    private static void CloseWhenRequestCompletes(Window window, ShowCommandRequest request) =>
+        _ = request.Response.Task.ContinueWith(_ => Dispatcher.UIThread.Post(window.Close),
+            CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
 
     private string CommandAtCaret()
     {

@@ -175,6 +175,8 @@
   <data name="CommandFormDivider" xml:space="preserve"><value>Command list and parameter form divider</value></data>
   <data name="ParameterSet" xml:space="preserve"><value>Parameter set:</value></data>
   <data name="CommandName" xml:space="preserve"><value>Command name:</value></data>
+  <data name="CommandSearch" xml:space="preserve"><value>Command search</value></data>
+  <data name="AllModules" xml:space="preserve"><value>All modules</value></data>
   <data name="CommandPreview" xml:space="preserve"><value>Command preview</value></data>
   <data name="SelectCommand" xml:space="preserve"><value>Select a command to enter its parameters.</value></data>
   <data name="LoadingCommand" xml:space="preserve"><value>Loading command parameters...</value></data>
