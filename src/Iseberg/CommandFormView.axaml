@@ -1,0 +1,22 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:Iseberg"
+             x:Class="Iseberg.CommandFormView">
+  <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="5">
+    <TextBlock x:Name="CommandTitle" FontWeight="Bold" TextWrapping="Wrap" />
+    <StackPanel Grid.Row="1" x:Name="SetPanel" Spacing="3" IsVisible="False">
+      <TextBlock Text="{local:Ui ParameterSet}" />
+      <ComboBox x:Name="ParameterSetPicker" HorizontalAlignment="Stretch"
+                AutomationProperties.Name="{local:Ui ParameterSet}" />
+    </StackPanel>
+    <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel x:Name="Parameters" Spacing="4" />
+    </ScrollViewer>
+    <Expander Grid.Row="3" Header="{local:Ui CommandPreview}" IsExpanded="True" HorizontalAlignment="Stretch">
+      <TextBox x:Name="CommandPreview" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+               MaxHeight="100" FontSize="11" AutomationProperties.Name="{local:Ui CommandPreview}" />
+    </Expander>
+    <TextBlock Grid.Row="4" x:Name="CommandValidation" TextWrapping="Wrap"
+               AutomationProperties.LiveSetting="Polite" />
+  </Grid>
+</UserControl>

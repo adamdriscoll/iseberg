@@ -46,6 +46,8 @@ public sealed partial class MainWindow : Window
     private bool closingApproved;
     private bool closingInProgress;
     private int commandRequestVersion;
+    private CancellationTokenSource? commandFormCancellation;
+    private bool updatingCommandList;
     private bool completionPending;
     private IReadOnlySet<CompletionResultType>? automaticCompletionFilter;
     private TextEditor? automaticCompletionEditor;
@@ -61,6 +63,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Icon = AppIcon.Create();
         DataContext = Workbench;
+        CommandForm.CommandChanged += RefreshState;
         ScriptEditor.Options.IndentationSize = 4;
         ScriptEditor.Options.ConvertTabsToSpaces = true;
         ScriptEditor.Options.HighlightCurrentLine = true;
@@ -126,6 +129,8 @@ public sealed partial class MainWindow : Window
         {
             outputTimer.Stop(); analysisTimer.Stop(); autoSaveTimer.Stop(); completionTimer.Stop();
             completion?.Close();
+            commandFormCancellation?.Cancel();
+            commandFormCancellation?.Dispose();
             DesktopTheme.Changed -= ApplyAppearance;
         };
         ApplySettings();
@@ -251,13 +256,13 @@ public sealed partial class MainWindow : Window
             displayedSession.ConsoleCaretOffset = ConsoleEditor.CaretOffset;
         displayedSession = next;
         completionNotice = null;
+        SetCommandModules();
         if (next is null) return;
         ConsoleEditor.Document = next.ConsoleDocument;
         ConsoleEditor.TextArea.ReadOnlySectionProvider = next.Console;
         ConsoleEditor.CaretOffset = Math.Min(next.ConsoleCaretOffset, next.ConsoleDocument.TextLength);
         ProgressPanel.IsVisible = false;
         DisplayFile();
-        SetCommandModules();
         RefreshState();
         ConsoleEditor.ScrollToEnd();
     }
@@ -318,7 +323,13 @@ public sealed partial class MainWindow : Window
         RunButton.IsEnabled = displayedFile is not null && (ready || paused);
         SelectionButton.IsEnabled = displayedFile is not null && ready;
         StopButton.IsEnabled = state is SessionState.Running or SessionState.Debugging;
-        CommandRunButton.IsEnabled = ready && CommandList.SelectedItem is not null;
+        var validCommand = CommandForm.Result is { IsValid: true };
+        CommandRunButton.IsEnabled = ready && validCommand;
+        CommandCopyButton.IsEnabled = validCommand;
+        CommandInsertButton.IsEnabled = validCommand && displayedFile is not null && !paused;
+        CommandHelpButton.IsEnabled = ready && CommandList.SelectedItem is not null;
+        CommandRefreshButton.IsEnabled = ready;
+        CommandList.IsEnabled = ready;
         ConsoleEditor.IsReadOnly = !ready;
         ScriptEditor.IsReadOnly = paused;
         if (!ready)
@@ -400,6 +411,7 @@ public sealed partial class MainWindow : Window
                 ScriptEditor.TextArea.TextView.Redraw();
                 break;
             case "Complete": await ShowCompletionAsync(); break;
+            case "ShowCommand": await ShowCommandAsync(); break;
             case "Snippets": await InsertSnippetAsync(); break;
             case "CreateSnippet": await CreateSnippetAsync(); break;
             case "ImportSnippets": await ImportSnippetsAsync(); break;
@@ -419,7 +431,19 @@ public sealed partial class MainWindow : Window
             case "FocusConsole": if (settings.Layout == "Maximized") { settings.Layout = "Top"; ApplySettings(); } FocusConsoleInput(); break;
             case "RefreshCommands": if (session is not null) await RefreshCommandsAsync(session); break;
             case "InsertCommand": InsertCommand(); break;
-            case "RunCommand": if (session is not null && CommandList.SelectedItem is CommandDescription command) await session.Engine.ExecuteAsync(command.Name); break;
+            case "CopyCommand":
+                var clipboard = GetTopLevel(this)?.Clipboard ?? throw new InvalidOperationException(UiText.Get("ClipboardUnavailable"));
+                await clipboard.SetTextAsync(CommandForm.GetCommand());
+                break;
+            case "RunCommand":
+                if (session is not null)
+                {
+                    var script = CommandForm.GetCommand();
+                    await session.Engine.ExecuteAsync(script);
+                    FlushOutput();
+                    FocusConsoleInput();
+                }
+                break;
             case "CommandHelp": if (CommandList.SelectedItem is CommandDescription selected) await ShowHelpAsync(selected.Name); break;
             case "Help": await ShowHelpAsync(ScriptEditor.SelectedText.Length > 0 ? ScriptEditor.SelectedText : CommandAtCaret()); break;
             case "Profiles": if (session is not null) await LoadProfilesAsync(session); break;
@@ -804,7 +828,7 @@ public sealed partial class MainWindow : Window
                 "RunSelection" => displayedFile is not null && ready,
                 "Stop" => state is SessionState.Running or SessionState.Debugging,
                 "StepInto" or "StepOver" or "StepOut" or "Continue" => paused,
-                "Breakpoint" or "RemoveBreakpoints" or "Profiles" or "Complete" => ready,
+                "Breakpoint" or "RemoveBreakpoints" or "Profiles" or "Complete" or "ShowCommand" => ready,
                 "ExecutionPolicy" => ready && OperatingSystem.IsWindows(),
                 "Snippets" or "CreateSnippet" => displayedFile is not null && !paused,
                 "Fold" => settings.ShowOutlining,
@@ -1014,14 +1038,17 @@ public sealed partial class MainWindow : Window
         var version = ++commandRequestVersion;
         var commands = await session.Engine.GetCommandsAsync();
         session.Commands = commands;
+        session.CommandForms.Clear();
         if (session == displayedSession && version == commandRequestVersion) SetCommandModules();
     }
 
     private void SetCommandModules()
     {
+        updatingCommandList = true;
         ModuleFilter.ItemsSource = new[] { "All" }.Concat((displayedSession?.Commands ?? [])
             .Select(c => c.Module).Where(m => m.Length > 0).Distinct().Order());
         ModuleFilter.SelectedIndex = 0;
+        updatingCommandList = false;
         FilterCommands();
     }
 
@@ -1030,23 +1057,95 @@ public sealed partial class MainWindow : Window
         if (CommandList is null) return;
         var name = CommandSearch.Text ?? "";
         var module = ModuleFilter.SelectedItem as string;
+        updatingCommandList = true;
         CommandList.ItemsSource = displayedSession?.Commands.Where(c =>
             c.Name.Contains(name, StringComparison.OrdinalIgnoreCase) && (module is null or "All" || c.Module == module)).ToArray();
+        CommandList.SelectedItem = CommandList.ItemsSource?.Cast<CommandDescription>()
+            .FirstOrDefault(c => c.Name == displayedSession?.SelectedCommand);
+        updatingCommandList = false;
+        SelectCommand();
     }
 
-    private void OnCommandFilterChanged(object? sender, SelectionChangedEventArgs e) => FilterCommands();
+    private void OnCommandFilterChanged(object? sender, SelectionChangedEventArgs e) { if (!updatingCommandList) FilterCommands(); }
     private void OnCommandSearchChanged(object? sender, TextChangedEventArgs e) => FilterCommands();
     private void OnCommandSelected(object? sender, SelectionChangedEventArgs e)
     {
-        CommandSyntax.Text = (CommandList.SelectedItem as CommandDescription)?.Definition ?? "";
-        RefreshState();
+        if (updatingCommandList) return;
+        SelectCommand();
     }
-    private void OnInsertCommand(object? sender, TappedEventArgs e) => InsertCommand();
+    private async void SelectCommand()
+    {
+        await GuardAsync(LoadCommandFormAsync);
+    }
+    private async Task LoadCommandFormAsync()
+    {
+        commandFormCancellation?.Cancel();
+        commandFormCancellation?.Dispose();
+        var cancellation = commandFormCancellation = new();
+        var session = displayedSession;
+        var command = CommandList.SelectedItem as CommandDescription;
+        if (session is not null) session.SelectedCommand = command?.Name;
+        CommandForm.ShowMessage(UiText.Get(command is null ? "SelectCommand" : "LoadingCommand"));
+        if (session is null || command is null) return;
+        try
+        {
+            if (!session.CommandForms.TryGetValue(command.Name, out var form))
+            {
+                var description = await session.Engine.GetCommandFormAsync(command.Name, command.Module, cancellation.Token);
+                form = new(description);
+                session.CommandForms[command.Name] = form;
+            }
+            if (!cancellation.IsCancellationRequested && displayedSession == session && ReferenceEquals(CommandList.SelectedItem, command))
+                CommandForm.ShowCommand(form);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is InvalidOperationException or RuntimeException)
+        {
+            if (!cancellation.IsCancellationRequested && displayedSession == session && ReferenceEquals(CommandList.SelectedItem, command))
+            {
+                CommandForm.ShowMessage(UiText.Get("CommandFormFailed") + ": " + exception.Message);
+                throw;
+            }
+            System.Diagnostics.Trace.TraceError("Superseded command metadata request failed: {0}", exception);
+        }
+    }
+    private async void OnInsertCommand(object? sender, TappedEventArgs e) =>
+        await GuardAsync(() => { InsertCommand(); return Task.CompletedTask; });
     private void InsertCommand()
     {
-        if (CommandList.SelectedItem is not CommandDescription command || ScriptEditor.IsReadOnly) return;
-        ScriptEditor.Document.Replace(ScriptEditor.SelectionStart, ScriptEditor.SelectionLength, command.Name + " ");
+        if (displayedFile is null || ScriptEditor.IsReadOnly)
+            throw new InvalidOperationException(UiText.Get("ReadOnlyReplace"));
+        InsertCommandText(CommandForm.GetCommand());
+    }
+
+    private void InsertCommandText(string script)
+    {
+        ScriptEditor.Document.Replace(ScriptEditor.SelectionStart, ScriptEditor.SelectionLength, script + " ");
         ScriptEditor.TextArea.Focus();
+    }
+
+    private async Task ShowCommandAsync()
+    {
+        if (displayedSession is not { } session) return;
+        var editor = editTarget as TextEditor ?? ScriptEditor;
+        var name = editor.SelectedText.Length > 0
+            ? EditorAnalysis.CommandNameAtCaret(editor.SelectedText, 0) ?? editor.SelectedText.Trim()
+            : EditorAnalysis.CommandNameAtCaret(editor.Text, editor.CaretOffset);
+        if (string.IsNullOrWhiteSpace(name))
+            name = await Dialogs.AskAsync(this, UiText.Get("ShowCommand").Replace("_", "").TrimEnd('.'), UiText.Get("CommandName"));
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var description = await session.Engine.GetCommandFormAsync(name);
+        var window = new ShowCommandWindow(new Core.CommandForm(description), displayedFile is not null && !ScriptEditor.IsReadOnly,
+            owner => ShowHelpAsync(description.Name, owner));
+        var result = await window.ShowDialog<ShowCommandResult?>(this);
+        if (result is null) return;
+        if (result.Run)
+        {
+            await session.Engine.ExecuteAsync(result.Script);
+            FlushOutput();
+            FocusConsoleInput();
+        }
+        else InsertCommandText(result.Script);
     }
 
     private string CommandAtCaret()
@@ -1056,7 +1155,7 @@ public sealed partial class MainWindow : Window
         return token?.Text ?? "Get-Help";
     }
 
-    private async Task ShowHelpAsync(string command)
+    private async Task ShowHelpAsync(string command, Window? owner = null)
     {
         if (displayedSession is null) return;
         if (!settings.UseLocalHelp)
@@ -1067,7 +1166,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         var text = await displayedSession.Engine.GetHelpAsync(command);
-        await Dialogs.ShowTextAsync(this, "PowerShell help - " + command, text);
+        await Dialogs.ShowTextAsync(owner ?? this, "PowerShell help - " + command, text);
     }
 
     private async Task ReplaceAsync()
@@ -1259,7 +1358,7 @@ public sealed partial class MainWindow : Window
             Key.F9 => ctrl && shift ? "RemoveBreakpoints" : "Breakpoint",
             Key.F10 when displayedSession?.Engine.State == SessionState.Debugging => "StepOver",
             Key.F11 => shift ? "StepOut" : "StepInto",
-            Key.F1 => "Help",
+            Key.F1 => ctrl ? "ShowCommand" : "Help",
             Key.Pause when ctrl => "Stop",
             Key.N when ctrl => "New",
             Key.O when ctrl => "Open",

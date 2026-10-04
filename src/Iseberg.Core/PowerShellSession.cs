@@ -202,6 +202,18 @@ public sealed class PowerShellSession : IAsyncDisposable
         return string.Join(Environment.NewLine, output);
     });
 
+    public Task<CommandFormDescription> GetCommandFormAsync(string name, string? module = null,
+        CancellationToken cancellationToken = default) => QueryAsync(shell =>
+    {
+        shell.AddCommand("Get-Command").AddParameter("Name", WildcardPattern.Escape(name));
+        if (!string.IsNullOrEmpty(module)) shell.AddParameter("Module", module);
+        var commands = shell.Invoke<CommandInfo>();
+        ThrowQueryErrors(shell);
+        var command = commands.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Command '{name}' was not found in this PowerShell tab.");
+        return CommandForm.Describe(command);
+    }, cancellationToken, waitForGate: true);
+
     public Task<Uri?> GetHelpUriAsync(string name) => QueryAsync(shell =>
     {
         var help = shell.AddCommand("Get-Help").AddParameter("Name", name).Invoke();
@@ -219,9 +231,11 @@ public sealed class PowerShellSession : IAsyncDisposable
         return null;
     });
 
-    private async Task<T> QueryAsync<T>(Func<PowerShell, T> query, CancellationToken cancellationToken = default)
+    private async Task<T> QueryAsync<T>(Func<PowerShell, T> query, CancellationToken cancellationToken = default,
+        bool waitForGate = false)
     {
-        if (!await gate.WaitAsync(0))
+        if (waitForGate) await gate.WaitAsync(cancellationToken);
+        else if (!await gate.WaitAsync(0))
             throw new InvalidOperationException("Wait for the running command to finish.");
         try
         {

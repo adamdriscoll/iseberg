@@ -15,6 +15,7 @@ Iseberg is a cross-platform desktop workbench inspired by PowerShell ISE.
 | `ConsoleBuffer` | Protected transcript and prompt, editable input, output spans and buffer limits in one text document |
 | `ReplacementSearch` and `ReplaceWindow` | Literal/regex replacement, search options, selection scope and undo grouping |
 | `SnippetCatalog` and `SnippetWindow` | Built-in/custom snippets, XML import/export, recursive discovery, previews, caret positioning and indentation |
+| `CommandForm` and `CommandFormView` | Parameter-set metadata, per-session drafts, literal/expression serialization, required-field validation, expandable typed editors and a shared preview for pane/dialog actions |
 | `UserSettings` and Options | Persisted preferences, themes, fonts, colors, completion behavior and recovery settings |
 
 ## Design decisions
@@ -24,6 +25,8 @@ The engine is a deep module: callers supply code and consume output/state/input/
 Script files retain their own text documents and undo histories. File persistence preserves recognized Unicode BOMs and line endings, marks a file saved only after a successful write, and replaces files through a temporary file in the destination directory.
 
 PowerShell parser tokens drive highlighting and incomplete-input detection rather than a second regex language parser. PowerShell itself supplies completion and command metadata. UI output is drained in batches and the console buffer is bounded.
+
+Command metadata is queried through the same runspace gate as completion, with cancellable, serialized requests. Alias targets supply parameter metadata while invocation retains the selected alias or module-qualified command. Forms retain values across parameter sets and sessions but serialize only the active set. Run, Insert and Copy share one generated command; literal text is quoted, and expression evaluation requires an explicit per-parameter choice. Late responses from a previous command or tab cannot replace the current form.
 
 `ConsoleBuffer` localizes transcript protection, active input, prompt transitions, output spans and trimming in one document. The editor's read-only-section interface protects the transcript even when a selection spans output and input; whole-value automation writes cannot bypass it. Host changes reset console undo rather than allowing an undo operation to remove output or prompts.
 

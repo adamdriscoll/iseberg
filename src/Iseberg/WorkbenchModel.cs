@@ -80,6 +80,8 @@ public sealed class SessionModel : ObservableModel
     public int ConsoleCaretOffset { get; set; }
     public ConsoleCompletion? Completion { get; set; }
     public IReadOnlyList<CommandDescription> Commands { get; set; } = [];
+    public string? SelectedCommand { get; set; }
+    public Dictionary<string, CommandForm> CommandForms { get; } = new(StringComparer.OrdinalIgnoreCase);
     public DebugLocation? DebugLocation { get; set; }
     public ScriptTab? SelectedFile
     {

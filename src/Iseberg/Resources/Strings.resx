@@ -171,6 +171,30 @@
   <data name="CloseScript" xml:space="preserve"><value>Close script</value></data>
   <data name="ClosePowerShellTab" xml:space="preserve"><value>Close PowerShell tab</value></data>
   <data name="CommandsTitle" xml:space="preserve"><value>Commands</value></data>
+  <data name="ShowCommand" xml:space="preserve"><value>Show _Command...</value></data>
+  <data name="CommandFormDivider" xml:space="preserve"><value>Command list and parameter form divider</value></data>
+  <data name="ParameterSet" xml:space="preserve"><value>Parameter set:</value></data>
+  <data name="CommandName" xml:space="preserve"><value>Command name:</value></data>
+  <data name="CommandPreview" xml:space="preserve"><value>Command preview</value></data>
+  <data name="SelectCommand" xml:space="preserve"><value>Select a command to enter its parameters.</value></data>
+  <data name="LoadingCommand" xml:space="preserve"><value>Loading command parameters...</value></data>
+  <data name="CommandFormFailed" xml:space="preserve"><value>Could not load command parameters</value></data>
+  <data name="CommonParameters" xml:space="preserve"><value>Common parameters</value></data>
+  <data name="NoCommandParameters" xml:space="preserve"><value>This command has no declared parameters.</value></data>
+  <data name="IncludeParameter" xml:space="preserve"><value>Include parameter</value></data>
+  <data name="RequiredParameter" xml:space="preserve"><value>Required</value></data>
+  <data name="PowerShellExpression" xml:space="preserve"><value>Use PowerShell expression</value></data>
+  <data name="ParameterValueHint" xml:space="preserve"><value>Values are literal text. Enable expression mode for variables, script blocks, or other PowerShell expressions.</value></data>
+  <data name="ArrayParameterHint" xml:space="preserve"><value>One literal value per line. Enable expression mode to enter a PowerShell array or variable.</value></data>
+  <data name="ParameterPosition" xml:space="preserve"><value>Position {0}</value></data>
+  <data name="PipelineInput" xml:space="preserve"><value>Accepts pipeline input</value></data>
+  <data name="ParameterAliases" xml:space="preserve"><value>Aliases:</value></data>
+  <data name="MissingParameters" xml:space="preserve"><value>Required parameters: {0}</value></data>
+  <data name="InvalidParameterExpressions" xml:space="preserve"><value>Invalid PowerShell expressions: {0}</value></data>
+  <data name="InvalidParameterChoices" xml:space="preserve"><value>Choose an allowed value for: {0}</value></data>
+  <data name="CopyCommand" xml:space="preserve"><value>Copy</value></data>
+  <data name="CommandCopied" xml:space="preserve"><value>Command copied.</value></data>
+  <data name="ClipboardUnavailable" xml:space="preserve"><value>The clipboard is unavailable.</value></data>
   <data name="Modules" xml:space="preserve"><value>Modules:</value></data>
   <data name="Name" xml:space="preserve"><value>Name</value></data>
   <data name="Refresh" xml:space="preserve"><value>Refresh</value></data>
