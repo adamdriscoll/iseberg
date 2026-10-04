@@ -200,7 +200,11 @@ public sealed partial class MainWindow : Window
 
     private void OnFileChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (e.Source == FileTabs) DisplayFile();
+        if (e.Source != FileTabs) return;
+        if (Workbench.SelectedSession is { } session && FileTabs.SelectedItem is ScriptTab file &&
+            session.Files.Contains(file) && session.SelectedFile != file)
+            session.SelectedFile = file;
+        DisplayFile();
     }
 
     private void DisplaySession()
@@ -379,7 +383,7 @@ public sealed partial class MainWindow : Window
             case "Options": await OptionsAsync(); break;
             case "About":
                 await Dialogs.ShowTextAsync(this, "About Iseberg",
-                    $"Iseberg\nAn original, cross-platform PowerShell ISE-style workbench.\n\nPowerShell {session?.Engine.Version}\nAvalonia + AvaloniaEdit + PowerShell SDK\n\nNot Microsoft PowerShell ISE. No Microsoft ISE code or assets are redistributed.\n\nSee README.md and docs/parity.md for implemented behavior and known differences.");
+                    $"Iseberg\nA cross-platform PowerShell ISE-style editor and terminal.\n\nPowerShell {session?.Engine.Version}\nAvalonia + AvaloniaEdit + PowerShell SDK\n\nSee README.md and docs/parity.md for implemented behavior and known differences.");
                 break;
         }
     }

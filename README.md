@@ -24,7 +24,7 @@ On Linux, use a graphical desktop with Avalonia's native dependencies (including
 
 ## Use
 
-The default view has a white script editor above the blue console, a Commands pane on the right, and the familiar menu, toolbar, file tabs, PowerShell tabs, and status/zoom bar.
+The default view has a white script editor above the blue console, a Commands pane on the right, and the familiar menu, toolbar, file tabs, and status/zoom bar. The PowerShell session tab row appears only when more than one session is open, so a single session's script tabs sit directly beneath the toolbar.
 
 | Action | Shortcut |
 |---|---|

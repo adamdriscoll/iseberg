@@ -134,6 +134,13 @@ public sealed class WorkbenchModel : ObservableModel
 {
     private SessionModel? selectedSession;
     public ObservableCollection<SessionModel> Sessions { get; } = [];
+    public bool HasMultipleSessions => Sessions.Count > 1;
+
+    public WorkbenchModel()
+    {
+        Sessions.CollectionChanged += (_, _) => Changed(nameof(HasMultipleSessions));
+    }
+
     public SessionModel? SelectedSession
     {
         get => selectedSession;

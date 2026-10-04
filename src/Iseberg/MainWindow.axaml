@@ -106,7 +106,7 @@
         <Button Classes="tool" Tag="Commands" Click="OnAction" ToolTip.Tip="Show commands (Ctrl+Shift+C)" AutomationProperties.Name="Commands pane"><local:ToolbarIcon Kind="Commands" /></Button>
       </StackPanel>
     </Border>
-    <TabStrip Grid.Row="2" x:Name="SessionTabs" ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}" SelectionChanged="OnSessionChanged" Background="#F0F0F0">
+    <TabStrip Grid.Row="2" x:Name="SessionTabs" IsVisible="{Binding HasMultipleSessions}" ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}" SelectionChanged="OnSessionChanged" Background="#F0F0F0">
       <TabStrip.ItemTemplate>
         <DataTemplate>
           <StackPanel Orientation="Horizontal" Spacing="8">
@@ -120,7 +120,7 @@
       <Grid x:Name="PaneGrid" RowDefinitions="3*,5,2*" ColumnDefinitions="*">
         <Grid x:Name="ScriptPane" RowDefinitions="Auto,*,Auto" Background="White">
           <Border BorderBrush="#C6C6C6" BorderThickness="0,0,0,1" Background="#F0F0F0">
-            <TabStrip x:Name="FileTabs" ItemsSource="{Binding SelectedSession.Files}" SelectedItem="{Binding SelectedSession.SelectedFile}" SelectionChanged="OnFileChanged">
+            <TabStrip x:Name="FileTabs" ItemsSource="{Binding SelectedSession.Files}" SelectedItem="{Binding SelectedSession.SelectedFile, Mode=OneWay}" SelectionChanged="OnFileChanged">
               <TabStrip.ItemTemplate>
                 <DataTemplate>
                   <StackPanel Orientation="Horizontal" Spacing="8">

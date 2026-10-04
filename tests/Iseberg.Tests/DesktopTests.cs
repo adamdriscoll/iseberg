@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -67,6 +68,57 @@ public sealed class DesktopTests
         Assert.Equal(16, window.FindControl<TextEditor>("ScriptEditor")!.FontSize);
         Assert.True(window.FindControl<TextEditor>("ConsoleOutput")!.IsReadOnly);
         Assert.False(window.FindControl<TextEditor>("ConsoleOutput")!.Options.AllowScrollBelowDocument);
+    }
+
+    [AvaloniaFact]
+    public async Task SessionTabRowOnlyAppearsForMultipleSessions()
+    {
+        var window = new MainWindow([], initializeOnOpen: false);
+        var first = new SessionModel("PowerShell 1");
+        var second = new SessionModel("PowerShell 2");
+        try
+        {
+            var firstFile = new ScriptTab(new ScriptFile("Untitled1.ps1"));
+            var otherFile = new ScriptTab(new ScriptFile("Untitled3.ps1"));
+            first.Files.Add(firstFile);
+            first.Files.Add(otherFile);
+            first.SelectedFile = firstFile;
+            var secondFile = new ScriptTab(new ScriptFile("Untitled2.ps1"));
+            second.Files.Add(secondFile);
+            second.SelectedFile = secondFile;
+            window.Workbench.Sessions.Add(first);
+            window.Workbench.SelectedSession = first;
+            Layout(window);
+            var tabs = window.FindControl<TabStrip>("SessionTabs")!;
+            var panes = window.FindControl<Grid>("OuterGrid")!;
+            var singleSessionTop = panes.Bounds.Y;
+            Assert.False(tabs.IsVisible);
+            Assert.Same(firstFile.Document, window.FindControl<TextEditor>("ScriptEditor")!.Document);
+            window.FindControl<TabStrip>("FileTabs")!.SelectedItem = otherFile;
+            Layout(window);
+            Assert.Same(otherFile, first.SelectedFile);
+            Assert.Same(otherFile.Document, window.FindControl<TextEditor>("ScriptEditor")!.Document);
+
+            window.Workbench.Sessions.Add(second);
+            window.Workbench.SelectedSession = second;
+            Layout(window);
+            Assert.True(tabs.IsVisible);
+            Assert.True(panes.Bounds.Y > singleSessionTop);
+            Assert.Same(secondFile.Document, window.FindControl<TextEditor>("ScriptEditor")!.Document);
+
+            window.Workbench.SelectedSession = first;
+            window.Workbench.Sessions.Remove(second);
+            Layout(window);
+            Assert.False(tabs.IsVisible);
+            Assert.Equal(singleSessionTop, panes.Bounds.Y);
+            Assert.Same(otherFile.Document, window.FindControl<TextEditor>("ScriptEditor")!.Document);
+        }
+        finally
+        {
+            await first.Engine.DisposeAsync();
+            await second.Engine.DisposeAsync();
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
