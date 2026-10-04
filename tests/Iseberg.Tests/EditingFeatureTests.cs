@@ -327,23 +327,41 @@ public sealed class EditingFeatureTests
         Assert.Equal(SessionState.Ready, session.State);
     }
 
-    [Fact]
-    public async Task CompletionTimeoutStopsAnActiveArgumentCompleterAndReleasesTheGate()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3500)]
+    public async Task CompletionTimeoutStopsAnActiveArgumentCompleterAndReleasesTheGate(int startupDelayMilliseconds)
     {
         await using var session = new PowerShellSession();
         await session.InitializeAsync();
-        await session.ExecuteAsync("""
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.Output += entry =>
+        {
+            if (entry.Text.Trim() == "argument-completer-started") started.TrySetResult();
+            if (entry.Text.Trim() == "argument-completer-finished") finished.TrySetResult();
+        };
+        await session.ExecuteAsync($$"""
             function Get-ParitySlow { param([string] $Value) }
             Register-ArgumentCompleter -CommandName Get-ParitySlow -ParameterName Value -ScriptBlock {
-                Start-Sleep -Seconds 5
+                Start-Sleep -Milliseconds {{startupDelayMilliseconds}}
+                $Host.UI.WriteLine('argument-completer-started')
+                Start-Sleep -Seconds 30
+                $Host.UI.WriteLine('argument-completer-finished')
                 'slow'
             }
             """);
         const string text = "Get-ParitySlow -Value ";
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => session.CompleteAsync(text, text.Length, timeout.Token));
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(3), $"Completion took {clock.Elapsed}.");
+        using var timeout = new CancellationTokenSource();
+        var completion = session.CompleteAsync(text, text.Length, timeout.Token);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            timeout.CancelAfter(TimeSpan.FromMilliseconds(200));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => completion.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.False(finished.Task.IsCompleted, "The argument completer finished instead of being stopped by the timeout.");
+        }
+        finally { timeout.Cancel(); }
         Assert.NotEmpty((await session.CompleteAsync("Get-Process", 11)).Matches);
         await session.ExecuteAsync("'still ready'");
         Assert.Equal(SessionState.Ready, session.State);
