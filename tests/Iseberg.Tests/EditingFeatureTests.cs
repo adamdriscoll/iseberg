@@ -11,6 +11,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using AvaloniaEdit;
 using AvaloniaEdit.Document;
+using AvaloniaEdit.CodeCompletion;
 using Iseberg.Core;
 using Xunit;
 using SessionState = Iseberg.Core.SessionState;
@@ -525,6 +526,84 @@ public sealed class EditingFeatureTests
         }
         finally { await session.Engine.DisposeAsync(); window.Close(); }
     }
+
+    [AvaloniaTheory]
+    [InlineData("ConsoleEditor", false)]
+    [InlineData("ScriptEditor", false)]
+    [InlineData("ConsoleEditor", true)]
+    [InlineData("ScriptEditor", true)]
+    public async Task TypingParameterDashShowsParametersAfterCommandCompletion(string editorName, bool pauseAtCommandDash)
+    {
+        var window = new MainWindow([], initializeOnOpen: false);
+        var session = new SessionModel("test");
+        await session.Engine.InitializeAsync();
+        try
+        {
+            await session.Engine.CompleteAsync("Get-Process -", "Get-Process -".Length);
+            var file = new ScriptTab(new ScriptFile("test.ps1"));
+            session.Files.Add(file); session.SelectedFile = file;
+            window.Workbench.Sessions.Add(session); window.Workbench.SelectedSession = session;
+            window.Show(); Dispatcher.UIThread.RunJobs();
+            var editor = window.FindControl<TextEditor>(editorName)!;
+            editor.CaretOffset = editor.Document.TextLength;
+            editor.TextArea.Focus();
+            foreach (var character in "Get-")
+                window.KeyTextInput(character.ToString());
+            if (pauseAtCommandDash)
+                await WaitUntilAsync(() => Completion(window)?.CompletionList.ListBox.Items.OfType<ICompletionData>()
+                    .Any(item => item.Text == "Get-Process") == true);
+            foreach (var character in "Process -")
+                window.KeyTextInput(character.ToString());
+            await WaitUntilAsync(() => Completion(window) is { } popup && popup.CompletionList.IsVisible &&
+                popup.CompletionList.ListBox.Items.OfType<ICompletionData>().Any(item => item.Text == "-Name"));
+            window.KeyTextInput("N");
+            window.KeyTextInput("a");
+            await WaitUntilAsync(() => Completion(window)?.CompletionList.SelectedItem?.Text == "-Name");
+            window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+            Assert.Equal("Get-Process -Name", editorName == "ConsoleEditor" ? session.Input : editor.Text);
+        }
+        finally { await session.Engine.DisposeAsync(); window.Close(); }
+    }
+
+    [AvaloniaTheory]
+    [InlineData("ConsoleEditor", "ErrorAction ", "Continue")]
+    [InlineData("ScriptEditor", "ErrorAction ", "Continue")]
+    [InlineData("ConsoleEditor", "Name $", "$ParityParameterVariable")]
+    [InlineData("ScriptEditor", "Name $", "$ParityParameterVariable")]
+    public async Task CompletionRefreshesForValuesAndVariablesAfterAnOpenParameterList(string editorName, string suffix, string expected)
+    {
+        var window = new MainWindow([], initializeOnOpen: false);
+        var session = new SessionModel("test");
+        await session.Engine.InitializeAsync();
+        try
+        {
+            await session.Engine.ExecuteAsync("$ParityParameterVariable = 'test'");
+            await session.Engine.CompleteAsync("Get-Process -", "Get-Process -".Length);
+            var file = new ScriptTab(new ScriptFile("test.ps1"));
+            session.Files.Add(file); session.SelectedFile = file;
+            window.Workbench.Sessions.Add(session); window.Workbench.SelectedSession = session;
+            window.Show(); Dispatcher.UIThread.RunJobs();
+            var editor = window.FindControl<TextEditor>(editorName)!;
+            if (editorName == "ConsoleEditor") session.Input = "Get-Process ";
+            else editor.Text = "Get-Process ";
+            editor.CaretOffset = editor.Document.TextLength;
+            editor.TextArea.Focus();
+            window.KeyTextInput("-");
+            await WaitUntilAsync(() => Completion(window)?.CompletionList.ListBox.Items.OfType<ICompletionData>()
+                .Any(item => item.Text == "-Name") == true);
+            foreach (var character in suffix) window.KeyTextInput(character.ToString());
+            await WaitUntilAsync(() => Completion(window) is { } popup && popup.CompletionList.IsVisible &&
+                popup.CompletionList.ListBox.Items.OfType<ICompletionData>().Any(item => item.Text == expected));
+            Completion(window)!.CompletionList.SelectItem(expected);
+            window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.None);
+            Assert.Equal("Get-Process -" + suffix.TrimEnd('$') + expected, editorName == "ConsoleEditor" ? session.Input : editor.Text);
+        }
+        finally { await session.Engine.DisposeAsync(); window.Close(); }
+    }
+
+    private static CompletionWindow? Completion(MainWindow window) => typeof(MainWindow)
+        .GetField("completion", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+        .GetValue(window) as CompletionWindow;
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {

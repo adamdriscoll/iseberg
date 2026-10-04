@@ -900,11 +900,7 @@ public sealed partial class MainWindow : Window
         if (editor.CaretOffset < start) return;
         var filter = EditorAnalysis.CompletionFilter(editor.Document.GetText(start, editor.Document.TextLength - start), editor.CaretOffset - start);
         if (filter is null) return;
-        if (completion is not null)
-        {
-            if (entered is not ("\\" or "/" or "." or ":" or "[")) return;
-            completion.Close();
-        }
+        completion?.Close();
         automaticCompletionEditor = editor;
         automaticCompletionFilter = filter;
         completionTimer.Start();
