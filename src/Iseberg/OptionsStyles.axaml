@@ -1,0 +1,217 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style Selector="Window.options">
+    <Setter Property="Background" Value="{DynamicResource DialogBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource WindowTextBrush}" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <Style Selector="Window.options Button">
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="Padding" Value="2,0" />
+    <Setter Property="Background" Value="{DynamicResource OptionsButtonBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ControlTextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource OptionsButtonBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border x:Name="frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+          <ContentPresenter x:Name="PART_ContentPresenter" Content="{TemplateBinding Content}" Padding="{TemplateBinding Padding}"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" RecognizesAccessKey="True" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Window.options Button:pointerover /template/ Border#frame">
+    <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+  </Style>
+  <Style Selector="Window.options Button:pressed /template/ Border#frame">
+    <Setter Property="Background" Value="{DynamicResource SelectionBrush}" />
+  </Style>
+  <Style Selector="Window.options Button:focus-visible /template/ Border#frame">
+    <Setter Property="BorderBrush" Value="{DynamicResource SelectionBrush}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Window.options Button:disabled">
+    <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}" />
+    <Setter Property="Background" Value="{DynamicResource DialogBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource OptionsDisabledBorderBrush}" />
+  </Style>
+  <Style Selector="Window.options CheckBox">
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Height" Value="16" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Grid ColumnDefinitions="13,6,*" Background="Transparent">
+          <Border x:Name="checkFrame" Width="13" Height="13" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                  Background="{DynamicResource WindowBrush}" VerticalAlignment="Top" Margin="0,1,0,0">
+            <Path x:Name="tick" Data="M1,5 L4,8 L10,1" Stroke="{DynamicResource WindowTextBrush}" StrokeThickness="2"
+                  Margin="0,1,0,0" IsVisible="False" />
+          </Border>
+          <Border x:Name="labelFrame" Grid.Column="2">
+            <ContentPresenter Content="{TemplateBinding Content}" VerticalContentAlignment="Center" RecognizesAccessKey="True" />
+          </Border>
+        </Grid>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Window.options CheckBox:checked /template/ Path#tick">
+    <Setter Property="IsVisible" Value="True" />
+  </Style>
+  <Style Selector="Window.options CheckBox:focus-visible /template/ Border#labelFrame">
+    <Setter Property="BorderBrush" Value="{DynamicResource SelectionBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="Window.options CheckBox:disabled">
+    <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}" />
+  </Style>
+  <Style Selector="Window.options TextBox">
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="Padding" Value="2,0" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Background" Value="{DynamicResource WindowBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource WindowTextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource OptionsInputBorderBrush}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Window.options ComboBox">
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="Padding" Value="5,0" />
+    <Setter Property="Background" Value="{DynamicResource InputBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource OptionsFrameBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource WindowTextBrush}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Grid>
+          <Border x:Name="comboFrame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1">
+            <Grid ColumnDefinitions="*,18">
+              <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                Margin="5,0,0,0" VerticalContentAlignment="Center" />
+              <Path Grid.Column="1" Data="M0,0 L3,3 L6,0" Stroke="{DynamicResource ControlTextBrush}" StrokeThickness="1"
+                    Width="6" Height="3" VerticalAlignment="Center" HorizontalAlignment="Center" />
+            </Grid>
+          </Border>
+          <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen, Mode=TwoWay}" Placement="Bottom"
+                 IsLightDismissEnabled="True" MinWidth="{Binding Bounds.Width, RelativeSource={RelativeSource TemplatedParent}}">
+            <Border Background="{DynamicResource WindowBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+              <ScrollViewer MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                <ItemsPresenter x:Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+              </ScrollViewer>
+            </Border>
+          </Popup>
+        </Grid>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Window.options ComboBox:focus-visible /template/ Border#comboFrame">
+    <Setter Property="BorderBrush" Value="{DynamicResource SelectionBrush}" />
+  </Style>
+  <Style Selector="Window.options ComboBox:disabled">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+  <Style Selector="Window.options TabStrip">
+    <Setter Property="Background" Value="{DynamicResource DialogBrush}" />
+  </Style>
+  <Style Selector="Window.options TabStripItem">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="Margin" Value="0,2,0,0" />
+    <Setter Property="Padding" Value="6,0" />
+    <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource ControlTextBrush}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border x:Name="tabFrame" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,1,1,0">
+          <ContentPresenter Content="{TemplateBinding Content}" Padding="{TemplateBinding Padding}" VerticalContentAlignment="Center" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Window.options TabStripItem:selected">
+    <Setter Property="Background" Value="{DynamicResource DialogBrush}" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="Height" Value="24" />
+  </Style>
+  <Style Selector="Window.options TabStripItem:focus-visible /template/ Border#tabFrame">
+    <Setter Property="BorderBrush" Value="{DynamicResource SelectionBrush}" />
+  </Style>
+  <Style Selector="Window.options TreeViewItem">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="MinHeight" Value="16" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <StackPanel>
+          <Grid ColumnDefinitions="14,*" MinHeight="16">
+            <ToggleButton x:Name="expander" IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}" Focusable="False" MinHeight="0" MinWidth="0"
+                          Width="12" Height="16" Padding="0" Background="Transparent" BorderThickness="0">
+              <ToggleButton.Template>
+                <ControlTemplate>
+                  <Path x:Name="arrow" Data="M0,0 L4,4 L0,8" Stroke="{DynamicResource ControlTextBrush}" StrokeThickness="1"
+                        Width="4" Height="8" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </ControlTemplate>
+              </ToggleButton.Template>
+            </ToggleButton>
+            <Border x:Name="headerFrame" Grid.Column="1" Background="{TemplateBinding Background}">
+              <ContentPresenter x:Name="PART_HeaderPresenter" Padding="1,0" Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                VerticalContentAlignment="Center" />
+            </Border>
+          </Grid>
+          <ItemsPresenter x:Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" IsVisible="{TemplateBinding IsExpanded}" Margin="20,0,0,0" />
+        </StackPanel>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Window.options TreeViewItem:empty /template/ ToggleButton#expander">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+  <Style Selector="Window.options TreeViewItem /template/ ToggleButton#expander:checked /template/ Path#arrow">
+    <Setter Property="Data" Value="M4,0 L4,6 L0,6 Z" />
+    <Setter Property="Fill" Value="{DynamicResource ControlTextBrush}" />
+  </Style>
+  <Style Selector="Window.options TreeViewItem:selected /template/ Border#headerFrame">
+    <Setter Property="Background" Value="{DynamicResource SelectionBrush}" />
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource SelectionTextBrush}" />
+  </Style>
+  <Style Selector="Window.options TreeViewItem:focus-visible /template/ Border#headerFrame">
+    <Setter Property="BorderBrush" Value="{DynamicResource SelectionBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="Window.options Slider">
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border x:Name="sliderFrame" BorderBrush="Transparent" BorderThickness="0">
+        <Grid Background="{TemplateBinding Background}">
+          <Border Height="4" Background="{DynamicResource WindowBrush}" VerticalAlignment="Center" />
+          <Track x:Name="PART_Track" Orientation="{TemplateBinding Orientation}" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value, Mode=TwoWay}">
+            <Track.Thumb>
+              <Thumb Width="10" Height="18" MinHeight="0" Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                <Thumb.Template>
+                  <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" />
+                  </ControlTemplate>
+                </Thumb.Template>
+              </Thumb>
+            </Track.Thumb>
+          </Track>
+        </Grid>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Window.options Canvas#ColorControls:disabled">
+    <Setter Property="Opacity" Value="0.6" />
+  </Style>
+  <Style Selector="Window.options Slider:focus-visible /template/ Border#sliderFrame">
+    <Setter Property="BorderBrush" Value="{DynamicResource SelectionBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+</Styles>

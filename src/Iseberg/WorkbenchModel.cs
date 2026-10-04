@@ -15,6 +15,7 @@ public abstract class ObservableModel : INotifyPropertyChanged
 
 public sealed class ScriptTab : ObservableModel
 {
+    public Guid RecoveryId { get; } = Guid.NewGuid();
     private readonly List<TextAnchor> breakpointAnchors = [];
     public ScriptFile File { get; }
     public TextDocument Document { get; }
@@ -64,13 +65,14 @@ public sealed class ScriptTab : ObservableModel
 
 public sealed class SessionModel : ObservableModel
 {
+    public sealed record ConsoleSpan(int Start, int End, OutputKind Kind, int CodeStart = 0, ScriptAnalysis? Analysis = null);
     private ScriptTab? selectedFile;
     private readonly ConcurrentQueue<OutputEntry> output = new();
     public string Name { get; }
     public PowerShellSession Engine { get; } = new();
     public ObservableCollection<ScriptTab> Files { get; } = [];
     public TextDocument ConsoleDocument { get; } = new();
-    public List<(int Start, int End, OutputKind Kind)> OutputSpans { get; } = [];
+    public List<ConsoleSpan> OutputSpans { get; } = [];
     public List<string> History { get; } = [];
     public int HistoryIndex { get; set; }
     public string DraftInput { get; set; } = "";
@@ -103,17 +105,18 @@ public sealed class SessionModel : ObservableModel
             {
                 var start = ConsoleDocument.TextLength;
                 ConsoleDocument.Insert(start, entry.Text);
-                if (OutputSpans.Count > 0 && OutputSpans[^1].Kind == entry.Kind && OutputSpans[^1].End == start)
-                    OutputSpans[^1] = (OutputSpans[^1].Start, ConsoleDocument.TextLength, entry.Kind);
+                if (entry.Kind != OutputKind.Command && OutputSpans.Count > 0 && OutputSpans[^1].Kind == entry.Kind && OutputSpans[^1].End == start)
+                    OutputSpans[^1] = OutputSpans[^1] with { End = ConsoleDocument.TextLength };
                 else
-                    OutputSpans.Add((start, ConsoleDocument.TextLength, entry.Kind));
+                    OutputSpans.Add(new(start, ConsoleDocument.TextLength, entry.Kind, start + entry.CodeStart,
+                        entry.Kind == OutputKind.Command ? EditorAnalysis.Analyze(entry.Text[entry.CodeStart..]) : null));
             }
             if (ConsoleDocument.TextLength > 500_000)
             {
                 var removed = ConsoleDocument.GetLineByOffset(ConsoleDocument.TextLength - 400_000).Offset;
                 ConsoleDocument.Remove(0, removed);
                 var spans = OutputSpans.Where(s => s.End > removed)
-                    .Select(s => (Math.Max(0, s.Start - removed), s.End - removed, s.Kind)).ToArray();
+                    .Select(s => s with { Start = Math.Max(0, s.Start - removed), End = s.End - removed, CodeStart = s.CodeStart - removed }).ToArray();
                 OutputSpans.Clear();
                 OutputSpans.AddRange(spans);
             }

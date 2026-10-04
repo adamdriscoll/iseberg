@@ -14,8 +14,8 @@ public static class Dialogs
         var panel = Body(message);
         panel.Children.Add(input);
         var buttons = Buttons();
-        var ok = new Button { Content = "OK", IsDefault = true, MinWidth = 75 };
-        var cancel = new Button { Content = "Cancel", IsCancel = true, MinWidth = 75 };
+        var ok = new Button { Content = UiText.Get("OK"), IsDefault = true, MinWidth = 75 };
+        var cancel = new Button { Content = UiText.Get("Cancel"), IsCancel = true, MinWidth = 75 };
         ok.Click += (_, _) => window.Close(input.Text ?? "");
         cancel.Click += (_, _) => window.Close(null);
         buttons.Children.Add(ok);
@@ -33,7 +33,7 @@ public static class Dialogs
         var buttons = Buttons();
         foreach (var choice in choices)
         {
-            var button = new Button { Content = choice, MinWidth = 75, IsCancel = choice == "Cancel" };
+            var button = new Button { Content = choice, MinWidth = 75, IsCancel = choice == UiText.Get("Cancel") };
             button.Click += (_, _) => window.Close(choice);
             buttons.Children.Add(button);
         }

@@ -65,7 +65,7 @@ public sealed class DesktopTests
         Assert.NotNull(window.FindControl<TextEditor>("ScriptEditor"));
         Assert.NotNull(window.FindControl<TextEditor>("ConsoleOutput"));
         Assert.True(window.FindControl<Border>("CommandsPane")!.IsVisible);
-        Assert.Equal(16, window.FindControl<TextEditor>("ScriptEditor")!.FontSize);
+        Assert.Equal(12, window.FindControl<TextEditor>("ScriptEditor")!.FontSize);
         Assert.True(window.FindControl<TextEditor>("ConsoleOutput")!.IsReadOnly);
         Assert.False(window.FindControl<TextEditor>("ConsoleOutput")!.Options.AllowScrollBelowDocument);
     }

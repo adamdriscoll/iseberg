@@ -5,7 +5,7 @@ namespace Iseberg.Core;
 public enum OutputKind { Output, Error, Warning, Verbose, Debug, Information, Command }
 public enum SessionState { Starting, Ready, Running, Debugging, Disposed }
 
-public sealed record OutputEntry(string Text, OutputKind Kind = OutputKind.Output);
+public sealed record OutputEntry(string Text, OutputKind Kind = OutputKind.Output, int CodeStart = 0);
 public sealed record DebugLocation(string? ScriptPath, int Line, int Column, string Message);
 public sealed record ProgressUpdate(string Activity, string Status, int Percent, bool Completed);
 public sealed record CompletionSet(int Start, int Length, IReadOnlyList<CompletionResult> Matches);
