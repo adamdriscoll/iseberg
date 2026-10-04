@@ -77,9 +77,15 @@ public sealed class ToolbarIcon : Control
             case "Options":
                 Shape("M7,1 L11,1 12,4 15,4 17,7 15,9 17,12 15,15 12,14 11,17 7,17 6,14 3,15 1,12 3,9 1,7 3,4 6,4 Z", Brushes.LightGray);
                 context.DrawEllipse(null, stroke, new(9, 9), 3, 3); break;
-            case "Snippets": case "Complete":
+            case "Snippets": case "Complete": case "MatchBrace": case "SelectBrace":
+            case "CreateSnippet": case "ImportSnippets": case "ExportSnippets":
                 Shape("M6,2 L3,2 3,7 1,9 3,11 3,16 6,16 M12,2 L15,2 15,7 17,9 15,11 15,16 12,16", Brushes.Transparent);
-                if (Kind == "Complete") Shape("M9,3 L7,9 11,9 9,15", Brushes.Goldenrod); break;
+                if (Kind == "Complete") Shape("M9,3 L7,9 11,9 9,15", Brushes.Goldenrod);
+                if (Kind is "MatchBrace" or "SelectBrace") Shape("M6,9 L12,9 M9,6 L12,9 9,12", Brushes.Transparent);
+                if (Kind == "CreateSnippet") Shape("M6,9 L12,9 M9,6 L9,12", Brushes.Transparent);
+                if (Kind is "ImportSnippets" or "ExportSnippets")
+                    Shape(Kind == "ImportSnippets" ? "M9,4 L9,14 M6,11 L9,14 12,11" : "M9,14 L9,4 M6,7 L9,4 12,7", Brushes.Transparent);
+                break;
             case "Clear":
                 Shape("M12,1 L16,3 9,15 3,12 Z", Brushes.Khaki);
                 Shape("M3,12 L9,15 7,18 1,15 Z", Brushes.SteelBlue); break;

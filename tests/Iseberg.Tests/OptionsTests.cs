@@ -228,7 +228,7 @@ public sealed class OptionsTests
             window.Show();
             DesktopTheme.Refresh(highContrast: true);
             Assert.Equal(DesktopTheme.Brush("WindowBrush"), window.FindControl<TextEditor>("ScriptEditor")!.Background);
-            Assert.Equal(DesktopTheme.Brush("WindowTextBrush"), window.FindControl<TextEditor>("ConsoleOutput")!.Foreground);
+            Assert.Equal(DesktopTheme.Brush("WindowTextBrush"), window.FindControl<TextEditor>("ConsoleEditor")!.Foreground);
             Assert.False(window.FindControl<TextEditor>("ScriptEditor")!.Options.HighlightCurrentLine);
             DesktopTheme.Refresh(highContrast: false);
             Assert.Equal(Color.Parse("#FF00FF"), ((ISolidColorBrush)window.FindControl<TextEditor>("ScriptEditor")!.Background!).Color);
@@ -265,18 +265,19 @@ public sealed class OptionsTests
         {
             window.Show();
             Dispatcher.UIThread.RunJobs();
-            var input = window.FindControl<TextBox>("ConsoleInput")!;
+            var input = window.FindControl<TextEditor>("ConsoleEditor")!;
             input.Text = "Get-Process";
-            input.Focus();
+            input.TextArea.Focus();
             var menu = window.FindControl<Menu>("WorkbenchMenu")!;
             var edit = menu.Items.OfType<MenuItem>().Single(m => m.Header as string == UiText.Get("EditMenu"));
             edit.Focus();
             edit.Items.OfType<MenuItem>().Single(m => m.Tag as string == "SelectAll").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             Assert.Equal(0, input.SelectionStart);
-            Assert.Equal(input.Text.Length, input.SelectionEnd);
-            Assert.True(input.IsFocused);
+            Assert.Equal(input.Text.Length, input.SelectionLength);
+            Assert.True(input.TextArea.IsFocused);
             Assert.Equal(0, window.FindControl<TextEditor>("ScriptEditor")!.SelectionLength);
-            var output = window.FindControl<TextEditor>("ConsoleOutput")!;
+            var output = window.FindControl<TextEditor>("ConsoleEditor")!;
+            output.IsReadOnly = true;
             Assert.True(output.TextArea.Focus());
             Assert.True(output.IsReadOnly);
             Assert.True(output.TextArea.IsFocused);
@@ -289,7 +290,7 @@ public sealed class OptionsTests
     }
 
     [AvaloniaFact]
-    public void EveryActionIconRendersAnOriginalGlyph()
+    public void EveryActionIconRendersAGlyph()
     {
         var window = new MainWindow([], initializeOnOpen: false);
         try

@@ -33,10 +33,6 @@ public sealed partial class MainWindow : Window
     private bool autoSaving;
     private Task autoSaveTask = Task.CompletedTask;
     private Control? editTarget;
-    private readonly CompletionPopup consoleCompletion = new();
-    private CompletionSet? consoleCompletionResults;
-    private string consoleCompletionText = "";
-    private int consoleCompletionCaret;
     private readonly PowerShellColorizer colorizer = new();
     private FoldingManager folding;
     private readonly SearchPanel search;
@@ -50,7 +46,10 @@ public sealed partial class MainWindow : Window
     private bool closingApproved;
     private bool closingInProgress;
     private int commandRequestVersion;
-    private bool consolePromptStacked;
+    private bool completionPending;
+    private IReadOnlySet<CompletionResultType>? automaticCompletionFilter;
+    private TextEditor? automaticCompletionEditor;
+    private string? completionNotice;
     public WorkbenchModel Workbench { get; } = new();
 
     public MainWindow() : this([]) { }
@@ -68,8 +67,12 @@ public sealed partial class MainWindow : Window
         ScriptEditor.TextArea.TextView.LineTransformers.Add(colorizer);
         ScriptEditor.TextArea.TextView.BackgroundRenderers.Add(new ScriptAdornments(
             () => displayedFile, () => displayedSession?.DebugLocation));
-        ConsoleOutput.TextArea.TextView.LineTransformers.Add(new ConsoleColorizer(() => displayedSession, () => settings.Theme));
-        ConsoleOutput.Options.AllowScrollBelowDocument = false;
+        ConsoleEditor.TextArea.TextView.LineTransformers.Add(new ConsoleColorizer(() => displayedSession, () => settings.Theme));
+        ConsoleEditor.Options.AllowScrollBelowDocument = false;
+        ConsoleEditor.Options.CutCopyWholeLine = false;
+        ConsoleEditor.Options.ConvertTabsToSpaces = true;
+        ScriptEditor.PropertyChanged += (_, e) => { if (e.Property == TextEditor.IsReadOnlyProperty) UpdateMenuState(); };
+        ConsoleEditor.PropertyChanged += (_, e) => { if (e.Property == TextEditor.IsReadOnlyProperty) UpdateMenuState(); };
         folding = FoldingManager.Install(ScriptEditor.TextArea);
         search = SearchPanel.Install(ScriptEditor);
         outputTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
@@ -86,42 +89,34 @@ public sealed partial class MainWindow : Window
         {
             if (e.Key == Key.Enter && !settings.ScriptCompletionOnEnter) completion?.Close();
         }, RoutingStrategies.Tunnel);
-        completionTimer = new DispatcherTimer();
+        completionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
         completionTimer.Tick += async (_, _) =>
         {
             completionTimer.Stop();
-            if (ScriptEditor.IsKeyboardFocusWithin && settings.ScriptIntelliSense) await GuardAsync(ShowCompletionAsync);
-            else if (ConsoleInput.IsFocused && settings.ConsoleIntelliSense && !string.IsNullOrWhiteSpace(ConsoleInput.Text)) await GuardAsync(ShowConsoleCompletionAsync);
+            if (automaticCompletionEditor is { IsKeyboardFocusWithin: true } editor && automaticCompletionFilter is { } filter)
+                await GuardAsync(() => RequestCompletionAsync(editor, filter));
         };
         ScriptEditor.TextChanged += (_, _) => { analysisTimer.Stop(); analysisTimer.Start(); RefreshCaret(); };
-        ScriptEditor.TextArea.Caret.PositionChanged += (_, _) => RefreshCaret();
-        ScriptEditor.TextArea.TextEntered += async (_, e) =>
+        ScriptEditor.TextArea.Caret.PositionChanged += (_, _) => { completionTimer.Stop(); RefreshCaret(); };
+        ScriptEditor.TextArea.TextEntered += (_, e) => ScheduleCompletion(ScriptEditor, e.Text);
+        ConsoleEditor.TextArea.TextEntered += (_, e) => ScheduleCompletion(ConsoleEditor, e.Text);
+        ConsoleEditor.TextArea.Caret.PositionChanged += (_, _) => { completionTimer.Stop(); RefreshCaret(); };
+        ConsoleEditor.TextArea.AddHandler(KeyDownEvent, (_, e) =>
         {
-            if (settings.ScriptIntelliSense && e.Text is "$" or "-" or ".")
-                await GuardAsync(ShowCompletionAsync);
-            else if (settings.ScriptIntelliSense) { completionTimer.Stop(); completionTimer.Start(); }
-        };
-        ConsoleInput.TextChanged += (_, _) =>
-        {
-            consoleCompletion.IsOpen = false;
-            if (settings.ConsoleIntelliSense && ConsoleInput.IsFocused) { completionTimer.Stop(); completionTimer.Start(); }
-        };
+            if (e.Key == Key.Enter && !settings.ConsoleCompletionOnEnter) completion?.Close();
+        }, RoutingStrategies.Tunnel);
         AddHandler(GotFocusEvent, (_, e) =>
         {
             if (e.Source is not Control source) return;
             var input = source.GetVisualAncestors().Prepend(source).FirstOrDefault(v => v is TextBox or TextEditor);
             if (input is Control control) { editTarget = control; UpdateMenuState(); }
         }, RoutingStrategies.Bubble, handledEventsToo: true);
-        consoleCompletion.PlacementTarget = ConsoleInput;
-        consoleCompletion.ItemInvoked += async (_, _) => await GuardAsync(AcceptConsoleCompletionAsync);
-        ConsoleInput.ContextMenu = CreateEditorMenu(ConsoleInput);
-        ConsoleOutput.ContextMenu = CreateEditorMenu(ConsoleOutput);
+        ConsoleEditor.ContextMenu = CreateEditorMenu(ConsoleEditor);
         ScriptEditor.ContextMenu = CreateEditorMenu(ScriptEditor);
         ConfigureMenus();
         DesktopTheme.Changed += ApplyAppearance;
         AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
-        ConsoleInput.AddHandler(KeyDownEvent, OnConsoleKeyDown, RoutingStrategies.Tunnel);
-        ConsolePane.SizeChanged += (_, _) => SizeConsoleOutput();
+        ConsoleEditor.TextArea.AddHandler(KeyDownEvent, OnConsoleKeyDown, RoutingStrategies.Tunnel);
         if (initializeOnOpen && !Design.IsDesignMode)
         {
             Opened += async (_, _) => await GuardAsync(StartAsync);
@@ -130,7 +125,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             outputTimer.Stop(); analysisTimer.Stop(); autoSaveTimer.Stop(); completionTimer.Stop();
-            consoleCompletion.IsOpen = false;
+            completion?.Close();
             DesktopTheme.Changed -= ApplyAppearance;
         };
         ApplySettings();
@@ -209,38 +204,18 @@ public sealed partial class MainWindow : Window
         try
         {
             await session.Engine.InitializeAsync();
-            session.ConsoleDocument.Text = $"PowerShell {session.Engine.Version}\nCopyright (c) Microsoft Corporation.\n\n";
+            session.Console.HidePrompt();
+            session.Console.Append(new($"PowerShell {session.Engine.Version}\nCopyright (c) Microsoft Corporation.\n\n", OutputKind.Output));
             if (settings.LoadProfiles) await LoadProfilesAsync(session);
             await RefreshCommandsAsync(session);
         }
         catch (Exception exception) when (exception is RuntimeException or InvalidOperationException or IOException)
         {
-            session.ConsoleDocument.Insert(session.ConsoleDocument.TextLength, $"Session initialization failed: {exception.Message}\n");
+            session.Console.Append(new($"Session initialization failed: {exception.Message}\n", OutputKind.Error));
             await ReportErrorAsync("Could not initialize PowerShell", exception);
         }
         RefreshState();
-        SizeConsoleOutput();
-    }
-
-    private void SizeConsoleOutput()
-    {
-        var stacked = (PromptText.Text?.Length ?? 0) * ConsoleOutput.TextArea.TextView.WideSpaceWidth > ConsolePane.Bounds.Width - 120;
-        if (stacked != consolePromptStacked)
-        {
-            consolePromptStacked = stacked;
-            PromptInputPanel.ColumnDefinitions = new(stacked ? "*" : "Auto,*");
-            PromptInputPanel.RowDefinitions = new(stacked ? "Auto,Auto" : "Auto");
-            Grid.SetColumn(ConsoleInput, stacked ? 0 : 1);
-            Grid.SetRow(ConsoleInput, stacked ? 1 : 0);
-            PromptText.TextWrapping = stacked ? TextWrapping.Wrap : TextWrapping.NoWrap;
-        }
-        var available = Math.Max(30, ConsolePane.Bounds.Height - Math.Max(34, PromptInputPanel.Bounds.Height + 8) - (ProgressPanel.IsVisible ? 45 : 0));
-        var height = Math.Min(available, Math.Max(ConsoleOutput.FontSize * 1.3, ConsoleOutput.TextArea.TextView.DocumentHeight + 4));
-        if (Math.Abs(ConsoleOutput.Height - height) > 0.5)
-        {
-            ConsoleOutput.Height = height;
-            Dispatcher.UIThread.Post(ConsoleOutput.ScrollToEnd, DispatcherPriority.Background);
-        }
+        FocusConsoleInput();
     }
 
     private void NewFile()
@@ -270,20 +245,21 @@ public sealed partial class MainWindow : Window
     {
         var next = Workbench.SelectedSession;
         if (displayedSession == next) return;
-        consoleCompletion.IsOpen = false;
-        consoleCompletionResults = null;
+        completion?.Close();
         completionTimer.Stop();
         if (displayedSession is not null)
-            displayedSession.Input = ConsoleInput.Text ?? "";
+            displayedSession.ConsoleCaretOffset = ConsoleEditor.CaretOffset;
         displayedSession = next;
+        completionNotice = null;
         if (next is null) return;
-        ConsoleOutput.Document = next.ConsoleDocument;
-        ConsoleInput.Text = next.Input;
+        ConsoleEditor.Document = next.ConsoleDocument;
+        ConsoleEditor.TextArea.ReadOnlySectionProvider = next.Console;
+        ConsoleEditor.CaretOffset = Math.Min(next.ConsoleCaretOffset, next.ConsoleDocument.TextLength);
         ProgressPanel.IsVisible = false;
         DisplayFile();
         SetCommandModules();
         RefreshState();
-        ConsoleOutput.ScrollToEnd();
+        ConsoleEditor.ScrollToEnd();
     }
 
     private void DisplayFile()
@@ -308,12 +284,12 @@ public sealed partial class MainWindow : Window
         {
             if (session.FlushOutput() && session == displayedSession)
             {
-                ConsoleOutput.TextArea.TextView.Redraw();
-                ConsoleOutput.ScrollToEnd();
+                completion?.Close();
+                ConsoleEditor.TextArea.TextView.Redraw();
+                ConsoleEditor.ScrollToEnd();
             }
         }
         RefreshState();
-        SizeConsoleOutput();
     }
 
     private void AnalyzeScript()
@@ -328,7 +304,8 @@ public sealed partial class MainWindow : Window
 
     private void RefreshCaret()
     {
-        CaretText.Text = string.Format(UiText.Get("Caret"), ScriptEditor.TextArea.Caret.Line, ScriptEditor.TextArea.Caret.Column);
+        var editor = editTarget as TextEditor ?? ScriptEditor;
+        CaretText.Text = string.Format(UiText.Get("Caret"), editor.TextArea.Caret.Line, editor.TextArea.Caret.Column);
         EncodingText.Text = displayedFile?.File.EncodingName ?? "";
         Title = $"{displayedFile?.File.Title ?? "Iseberg"} - Iseberg - PowerShell 7 ISE";
     }
@@ -342,12 +319,18 @@ public sealed partial class MainWindow : Window
         SelectionButton.IsEnabled = displayedFile is not null && ready;
         StopButton.IsEnabled = state is SessionState.Running or SessionState.Debugging;
         CommandRunButton.IsEnabled = ready && CommandList.SelectedItem is not null;
-        ConsoleInput.IsEnabled = ready;
+        ConsoleEditor.IsReadOnly = !ready;
         ScriptEditor.IsReadOnly = paused;
-        PromptText.Text = displayedSession?.Engine.Prompt ?? "PS> ";
+        if (!ready)
+        {
+            completionNotice = null;
+            if (completion?.TextArea == ConsoleEditor.TextArea) completion.Close();
+            displayedSession?.Console.HidePrompt();
+        }
+        else displayedSession?.FlushOutput();
         StatusText.Text = state switch
         {
-            SessionState.Ready => UiText.Get("Ready"),
+            SessionState.Ready => completionNotice ?? UiText.Get("Ready"),
             SessionState.Running => UiText.Get("Running"),
             SessionState.Debugging => string.Format(UiText.Get("DebugStatus"), displayedSession?.DebugLocation?.Line),
             SessionState.Disposed => UiText.Get("SessionClosed"),
@@ -380,15 +363,16 @@ public sealed partial class MainWindow : Window
             case "NewSession": await NewSessionAsync(); break;
             case "CloseSession": if (session is not null) await CloseSessionAsync(session); break;
             case "Exit": Close(); break;
-            case "Undo": if (editTarget is TextBox undoBox) undoBox.Undo(); else if (editTarget != ConsoleOutput) ScriptEditor.Undo(); break;
-            case "Redo": if (editTarget is TextBox redoBox) redoBox.Redo(); else if (editTarget != ConsoleOutput) ScriptEditor.Redo(); break;
-            case "Cut": if (editTarget is TextBox cutBox) cutBox.Cut(); else if (editTarget != ConsoleOutput) ScriptEditor.Cut(); break;
-            case "Copy": if (editTarget is TextBox copyBox) copyBox.Copy(); else if (editTarget == ConsoleOutput) ConsoleOutput.Copy(); else ScriptEditor.Copy(); break;
-            case "Paste": if (editTarget is TextBox pasteBox) pasteBox.Paste(); else if (editTarget != ConsoleOutput) ScriptEditor.Paste(); break;
-            case "SelectAll": if (editTarget is TextBox selectBox) selectBox.SelectAll(); else if (editTarget == ConsoleOutput) ConsoleOutput.SelectAll(); else ScriptEditor.SelectAll(); break;
+            case "Undo": if (editTarget is TextBox undoBox) undoBox.Undo(); else (editTarget as TextEditor ?? ScriptEditor).Undo(); break;
+            case "Redo": if (editTarget is TextBox redoBox) redoBox.Redo(); else (editTarget as TextEditor ?? ScriptEditor).Redo(); break;
+            case "Cut": if (editTarget is TextBox cutBox) cutBox.Cut(); else (editTarget as TextEditor ?? ScriptEditor).Cut(); break;
+            case "Copy": if (editTarget is TextBox copyBox) copyBox.Copy(); else (editTarget as TextEditor ?? ScriptEditor).Copy(); break;
+            case "Paste": if (editTarget is TextBox pasteBox) pasteBox.Paste(); else (editTarget as TextEditor ?? ScriptEditor).Paste(); break;
+            case "SelectAll": if (editTarget is TextBox selectBox) selectBox.SelectAll(); else (editTarget as TextEditor ?? ScriptEditor).SelectAll(); break;
             case "Find": search.Open(); search.Reactivate(); break;
             case "Replace": await ReplaceAsync(); break;
             case "GoToLine": await GoToLineAsync(); break;
+            case "MatchBrace": case "SelectBrace": NavigateBrace(action == "SelectBrace"); break;
             case "Run": if (session?.Engine.State == SessionState.Debugging) session.Engine.Resume(DebuggerResumeAction.Continue); else await RunScriptAsync(false); break;
             case "RunSelection": await RunScriptAsync(true); break;
             case "Stop": if (session is not null) await session.Engine.StopAsync(); break;
@@ -417,6 +401,9 @@ public sealed partial class MainWindow : Window
                 break;
             case "Complete": await ShowCompletionAsync(); break;
             case "Snippets": await InsertSnippetAsync(); break;
+            case "CreateSnippet": await CreateSnippetAsync(); break;
+            case "ImportSnippets": await ImportSnippetsAsync(); break;
+            case "ExportSnippets": await ExportSnippetsAsync(); break;
             case "Clear": session?.ClearOutput(); break;
             case "Top": case "Right": case "Maximized": settings.Layout = action; ApplySettings(); break;
             case "Commands": settings.ShowCommands = !settings.ShowCommands; ApplySettings(); break;
@@ -429,7 +416,7 @@ public sealed partial class MainWindow : Window
                 foreach (var fold in folding.AllFoldings) fold.IsFolded = collapse;
                 break;
             case "FocusScript": ScriptEditor.TextArea.Focus(); break;
-            case "FocusConsole": if (settings.Layout == "Maximized") { settings.Layout = "Top"; ApplySettings(); } ConsoleInput.Focus(); break;
+            case "FocusConsole": if (settings.Layout == "Maximized") { settings.Layout = "Top"; ApplySettings(); } FocusConsoleInput(); break;
             case "RefreshCommands": if (session is not null) await RefreshCommandsAsync(session); break;
             case "InsertCommand": InsertCommand(); break;
             case "RunCommand": if (session is not null && CommandList.SelectedItem is CommandDescription command) await session.Engine.ExecuteAsync(command.Name); break;
@@ -630,115 +617,111 @@ public sealed partial class MainWindow : Window
     private async void OnConsoleKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Handled) return;
-        if (displayedSession is not { } session) return;
-        if (consoleCompletion.IsOpen)
+        if (displayedSession is not { Engine.State: SessionState.Ready } session) return;
+        if (completion is not null && (e.Key == Key.Tab || e.Key == Key.Enter && settings.ConsoleCompletionOnEnter)) return;
+        if (e.Key == Key.Escape)
         {
-            if (e.Key == Key.Escape) { consoleCompletion.IsOpen = false; e.Handled = true; return; }
-            if (e.Key is Key.Up or Key.Down)
-            {
-                consoleCompletion.SelectedIndex = Math.Clamp(consoleCompletion.SelectedIndex + (e.Key == Key.Up ? -1 : 1), 0, consoleCompletion.Items.Count - 1);
-                e.Handled = true; return;
-            }
-            if (e.Key == Key.Tab || (e.Key == Key.Enter && settings.ConsoleCompletionOnEnter))
-            {
-                e.Handled = true; await GuardAsync(AcceptConsoleCompletionAsync); return;
-            }
-            if (e.Key == Key.Enter) consoleCompletion.IsOpen = false;
+            if (completion is not null) { completion.Close(); e.Handled = true; return; }
+            session.Input = "";
+            session.Completion = null;
+            FocusConsoleInput();
+            e.Handled = true;
+            return;
         }
         if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
         {
-            var text = ConsoleInput.Text ?? "";
-            if (EditorAnalysis.Analyze(text).Errors.Any(error => error.IncompleteInput))
-                return;
             e.Handled = true;
+            if (ConsoleEditor.CaretOffset < session.Console.InputStart)
+            {
+                var command = session.OutputSpans.FirstOrDefault(s => s.Kind == OutputKind.Command &&
+                    s.Start <= ConsoleEditor.CaretOffset && s.End > ConsoleEditor.CaretOffset && s.CodeStart >= 0);
+                if (command is not null)
+                    session.Input = ConsoleEditor.Document.GetText(command.CodeStart, command.End - command.CodeStart).TrimEnd('\r', '\n');
+                FocusConsoleInput();
+                return;
+            }
+            var text = session.Input;
+            if (EditorAnalysis.Analyze(text).Errors.Any(error => error.IncompleteInput))
+            {
+                ConsoleEditor.TextArea.PerformTextInput(Environment.NewLine);
+                return;
+            }
             if (string.IsNullOrWhiteSpace(text)) return;
-            ConsoleInput.Text = "";
+            session.Input = "";
+            session.Console.HidePrompt();
+            completion?.Close();
+            completionTimer.Stop();
             if (session.History.Count == 0 || session.History[^1] != text) session.History.Add(text);
             if (session.History.Count > 1000) session.History.RemoveAt(0);
             session.HistoryIndex = session.History.Count;
             session.DraftInput = "";
-            await GuardAsync(async () => { await session.Engine.ExecuteAsync(text); FlushOutput(); ConsoleInput.Focus(); });
+            session.Completion = null;
+            await GuardAsync(async () => { await session.Engine.ExecuteAsync(text); FlushOutput(); FocusConsoleInput(); });
         }
-        else if (e.Key is Key.Up or Key.Down && !e.KeyModifiers.HasFlag(KeyModifiers.Shift) && !(ConsoleInput.Text ?? "").Contains('\n'))
+        else if (e.Key is Key.Up or Key.Down && e.KeyModifiers == KeyModifiers.None && !session.Input.Contains('\n') &&
+                 ConsoleEditor.CaretOffset >= session.Console.InputStart && completion is null)
         {
             e.Handled = true;
-            if (session.HistoryIndex == session.History.Count) session.DraftInput = ConsoleInput.Text ?? "";
+            if (session.HistoryIndex == session.History.Count) session.DraftInput = session.Input;
             session.HistoryIndex = Math.Clamp(session.HistoryIndex + (e.Key == Key.Up ? -1 : 1), 0, session.History.Count);
-            ConsoleInput.Text = session.HistoryIndex == session.History.Count ? session.DraftInput : session.History[session.HistoryIndex];
-            ConsoleInput.CaretIndex = ConsoleInput.Text.Length;
+            session.Input = session.HistoryIndex == session.History.Count ? session.DraftInput : session.History[session.HistoryIndex];
+            FocusConsoleInput();
         }
         else if (e.Key == Key.Tab)
         {
             e.Handled = true;
-            await GuardAsync(() => CompleteConsoleAsync(e.KeyModifiers.HasFlag(KeyModifiers.Shift)));
+            if (ConsoleEditor.CaretOffset >= session.Console.InputStart)
+                await GuardAsync(() => CompleteConsoleAsync(e.KeyModifiers.HasFlag(KeyModifiers.Shift)));
         }
+    }
+
+    private void FocusConsoleInput()
+    {
+        ConsoleEditor.TextArea.Focus();
+        ConsoleEditor.CaretOffset = ConsoleEditor.Document.TextLength;
+        ConsoleEditor.TextArea.ClearSelection();
+        ConsoleEditor.ScrollToEnd();
     }
 
     private async Task CompleteConsoleAsync(bool backwards = false)
     {
         if (displayedSession is not { } session) return;
-        var text = ConsoleInput.Text ?? "";
-        var caret = ConsoleInput.CaretIndex;
+        if (completionPending) return;
+        var text = session.Input;
+        var caret = ConsoleEditor.CaretOffset - session.Console.InputStart;
         var previous = session.Completion;
         var cycling = previous is not null && previous.LastText == text && previous.LastCaret == caret;
-        var matches = cycling ? previous!.Results : await session.Engine.CompleteAsync(text, caret);
-        if (session != displayedSession || text != ConsoleInput.Text || caret != ConsoleInput.CaretIndex || matches.Matches.Count == 0) return;
+        var matches = cycling ? previous!.Results : await GetCompletionAsync(session, text, caret);
+        if (matches is null || session != displayedSession || text != session.Input ||
+            caret != ConsoleEditor.CaretOffset - session.Console.InputStart || matches.Matches.Count == 0) return;
         var index = cycling ? (previous!.Index + (backwards ? -1 : 1) + matches.Matches.Count) % matches.Matches.Count : (backwards ? matches.Matches.Count - 1 : 0);
         var original = cycling ? previous!.Original : text;
         var match = matches.Matches[index];
-        ConsoleInput.Text = original.Remove(matches.Start, matches.Length).Insert(matches.Start, match.CompletionText);
-        ConsoleInput.CaretIndex = matches.Start + match.CompletionText.Length;
-        session.Completion = new(original, ConsoleInput.Text, ConsoleInput.CaretIndex, index, matches);
-    }
-
-    private async Task ShowConsoleCompletionAsync()
-    {
-        if (displayedSession is not { Engine.State: SessionState.Ready } session || consoleCompletion.IsOpen) return;
-        var text = ConsoleInput.Text ?? "";
-        var caret = ConsoleInput.CaretIndex;
-        var results = await session.Engine.CompleteAsync(text, caret);
-        if (session != displayedSession || text != ConsoleInput.Text || caret != ConsoleInput.CaretIndex || results.Matches.Count == 0) return;
-        consoleCompletionResults = results;
-        consoleCompletionText = text;
-        consoleCompletionCaret = caret;
-        consoleCompletion.Results = results.Matches.Take(300).ToArray();
-        consoleCompletion.SelectedIndex = 0;
-        consoleCompletion.IsOpen = true;
-    }
-
-    private Task AcceptConsoleCompletionAsync()
-    {
-        if (consoleCompletionResults is { } results && consoleCompletion.SelectedItem is { } match &&
-            consoleCompletionText == ConsoleInput.Text && consoleCompletionCaret == ConsoleInput.CaretIndex)
-        {
-            ConsoleInput.Text = consoleCompletionText.Remove(results.Start, results.Length).Insert(results.Start, match.CompletionText);
-            ConsoleInput.CaretIndex = results.Start + match.CompletionText.Length;
-        }
-        consoleCompletion.IsOpen = false;
-        ConsoleInput.Focus();
-        return Task.CompletedTask;
+        session.Input = original.Remove(matches.Start, matches.Length).Insert(matches.Start, match.CompletionText);
+        ConsoleEditor.CaretOffset = session.Console.InputStart + matches.Start + match.CompletionText.Length;
+        session.Completion = new(original, session.Input, ConsoleEditor.CaretOffset - session.Console.InputStart, index, matches);
     }
 
     private void ApplyAppearance()
     {
         var family = new FontFamily(settings.FontFamily + ", Consolas, DejaVu Sans Mono, Menlo, monospace");
-        ScriptEditor.FontFamily = ConsoleOutput.FontFamily = ConsoleInput.FontFamily = PromptText.FontFamily = family;
+        ScriptEditor.FontFamily = ConsoleEditor.FontFamily = family;
         IBrush ColorBrush(string key, string system) => DesktopTheme.HighContrast ? DesktopTheme.Brush(system) :
             new SolidColorBrush(Color.Parse(settings.Theme.Colors[key]));
         ScriptEditor.Background = ScriptPane.Background = ColorBrush("Script.Background", "WindowBrush");
         ScriptEditor.Foreground = ColorBrush("Script.Foreground", "WindowTextBrush");
         ConsolePane.Background = ColorBrush("Console.Background", "WindowBrush");
-        ConsoleOutput.Background = ConsoleInput.Background = ColorBrush("Console.TextBackground", "WindowBrush");
-        ConsoleOutput.Foreground = ConsoleInput.Foreground = PromptText.Foreground = ColorBrush("Console.Foreground", "WindowTextBrush");
+        ConsoleEditor.Background = ColorBrush("Console.TextBackground", "WindowBrush");
+        ConsoleEditor.Foreground = ColorBrush("Console.Foreground", "WindowTextBrush");
         colorizer.Theme = settings.Theme;
         ScriptEditor.Options.HighlightCurrentLine = !DesktopTheme.HighContrast;
         ScriptEditor.LineNumbersForeground = DesktopTheme.Brush("DisabledTextBrush");
-        ScriptEditor.TextArea.SelectionBrush = ConsoleOutput.TextArea.SelectionBrush = DesktopTheme.Brush("SelectionBrush");
-        ScriptEditor.TextArea.SelectionForeground = ConsoleOutput.TextArea.SelectionForeground = DesktopTheme.Brush("SelectionTextBrush");
+        ScriptEditor.TextArea.SelectionBrush = ConsoleEditor.TextArea.SelectionBrush = DesktopTheme.Brush("SelectionBrush");
+        ScriptEditor.TextArea.SelectionForeground = ConsoleEditor.TextArea.SelectionForeground = DesktopTheme.Brush("SelectionTextBrush");
         ScriptEditor.TextArea.Caret.CaretBrush = ScriptEditor.Foreground;
-        ConsoleOutput.TextArea.Caret.CaretBrush = ConsoleOutput.Foreground;
+        ConsoleEditor.TextArea.Caret.CaretBrush = ConsoleEditor.Foreground;
         ScriptEditor.TextArea.TextView.Redraw();
-        ConsoleOutput.TextArea.TextView.Redraw();
+        ConsoleEditor.TextArea.TextView.Redraw();
     }
 
     private ContextMenu CreateEditorMenu(Control editor)
@@ -823,7 +806,7 @@ public sealed partial class MainWindow : Window
                 "StepInto" or "StepOver" or "StepOut" or "Continue" => paused,
                 "Breakpoint" or "RemoveBreakpoints" or "Profiles" or "Complete" => ready,
                 "ExecutionPolicy" => ready && OperatingSystem.IsWindows(),
-                "Snippets" => settings.UseDefaultSnippets && !paused,
+                "Snippets" or "CreateSnippet" => displayedFile is not null && !paused,
                 "Fold" => settings.ShowOutlining,
                 "Close" or "CloseSession" => displayedSession is not null,
                 "Save" or "SaveAs" => displayedFile is not null,
@@ -854,9 +837,11 @@ public sealed partial class MainWindow : Window
                 "Undo" => !editor.IsReadOnly && editor.Document.UndoStack.CanUndo,
                 "Redo" => !editor.IsReadOnly && editor.Document.UndoStack.CanRedo,
                 "Copy" => editor.SelectionLength > 0 || (editor.Options.CutCopyWholeLine && editor.Document.TextLength > 0),
-                "Cut" => !editor.IsReadOnly && (editor.SelectionLength > 0 || (editor.Options.CutCopyWholeLine && editor.Document.TextLength > 0)),
+                "Cut" => !editor.IsReadOnly && (editor.SelectionLength > 0
+                    ? editor.TextArea.ReadOnlySectionProvider.GetDeletableSegments(new SimpleSegment(editor.SelectionStart, editor.SelectionLength)).Any()
+                    : editor.Options.CutCopyWholeLine && editor.TextArea.ReadOnlySectionProvider.CanInsert(editor.CaretOffset)),
                 "SelectAll" => editor.Document.TextLength > 0,
-                "Paste" => !editor.IsReadOnly,
+                "Paste" => !editor.IsReadOnly && editor.TextArea.ReadOnlySectionProvider.CanInsert(editor.CaretOffset),
                 _ => false
             };
         return false;
@@ -904,27 +889,74 @@ public sealed partial class MainWindow : Window
         finally { autoSaving = false; }
     }
 
-    private async Task ShowCompletionAsync()
+    private Task ShowCompletionAsync() => RequestCompletionAsync(editTarget == ConsoleEditor ? ConsoleEditor : ScriptEditor);
+
+    private void ScheduleCompletion(TextEditor editor, string? entered)
     {
-        if (editTarget == ConsoleInput) { await ShowConsoleCompletionAsync(); return; }
-        if (displayedSession is not { Engine.State: SessionState.Ready } session || completion is not null) return;
-        var document = ScriptEditor.Document;
-        var text = document.Text;
-        var caret = ScriptEditor.CaretOffset;
-        var results = await session.Engine.CompleteAsync(text, caret);
-        if (displayedSession != session || ScriptEditor.Document != document || document.Text != text || ScriptEditor.CaretOffset != caret || results.Matches.Count == 0) return;
-        completion = new CompletionWindow(ScriptEditor.TextArea)
+        completionTimer.Stop();
+        if (entered?.Length != 1 ||
+            !(editor == ScriptEditor ? settings.ScriptIntelliSense : settings.ConsoleIntelliSense)) return;
+        var start = editor == ConsoleEditor ? displayedSession?.Console.InputStart ?? editor.Document.TextLength : 0;
+        if (editor.CaretOffset < start) return;
+        var filter = EditorAnalysis.CompletionFilter(editor.Document.GetText(start, editor.Document.TextLength - start), editor.CaretOffset - start);
+        if (filter is null) return;
+        completion?.Close();
+        automaticCompletionEditor = editor;
+        automaticCompletionFilter = filter;
+        completionTimer.Start();
+    }
+
+    private async Task<CompletionSet?> GetCompletionAsync(SessionModel session, string text, int caret)
+    {
+        completionNotice = null;
+        completionPending = true;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(settings.IntelliSenseTimeoutSeconds));
+        try { return await session.Engine.CompleteAsync(text, caret, timeout.Token); }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
-            StartOffset = results.Start,
-            EndOffset = results.Start + results.Length
+            if (displayedSession == session)
+            {
+                completionNotice = UiText.Get("CompletionTimedOut");
+                StatusText.Text = completionNotice;
+            }
+            System.Diagnostics.Trace.TraceWarning("PowerShell completion timed out.");
+            return null;
+        }
+        finally { completionPending = false; }
+    }
+
+    private async Task RequestCompletionAsync(TextEditor editor, IReadOnlySet<CompletionResultType>? filter = null)
+    {
+        if (displayedSession is not { Engine.State: SessionState.Ready } session || completion is not null || completionPending || editor.IsReadOnly) return;
+        var document = editor.Document;
+        var start = editor == ConsoleEditor ? session.Console.InputStart : 0;
+        if (editor.CaretOffset < start) return;
+        var snapshot = document.Text;
+        var text = snapshot[start..];
+        var caret = editor.CaretOffset - start;
+        var results = await GetCompletionAsync(session, text, caret);
+        if (results is null || displayedSession != session || editor.Document != document ||
+            document.Text != snapshot || editor.CaretOffset != start + caret || editTarget is not null && editTarget != editor) return;
+        var matches = results.Matches.Where(m => filter is null || filter.Contains(m.ResultType)).ToArray();
+        if (matches.Length == 0) return;
+        var popup = new CompletionWindow(editor.TextArea)
+        {
+            StartOffset = start + results.Start,
+            EndOffset = start + results.Start + results.Length,
+            CloseWhenCaretAtBeginning = false
         };
-        foreach (var match in results.Matches.Take(300)) completion.CompletionList.CompletionData.Add(new PowerShellCompletion(match));
-        completion.AddHandler(KeyDownEvent, (_, e) =>
+        completion = popup;
+        foreach (var match in matches) popup.CompletionList.CompletionData.Add(new PowerShellCompletion(match));
+        popup.AddHandler(KeyDownEvent, (_, e) =>
         {
-            if (e.Key == Key.Enter && !settings.ScriptCompletionOnEnter) { completion?.Close(); e.Handled = true; }
+            if (e.Key == Key.Enter && !(editor == ScriptEditor ? settings.ScriptCompletionOnEnter : settings.ConsoleCompletionOnEnter))
+            { popup.Close(); e.Handled = true; }
         }, RoutingStrategies.Tunnel);
-        completion.Closed += (_, _) => completion = null;
-        completion.Show();
+        popup.Closed += (_, _) => { if (completion == popup) completion = null; };
+        popup.Show();
+        popup.CompletionList.SelectItem(text.Substring(results.Start, caret - results.Start));
+        if (filter?.Contains(CompletionResultType.ProviderContainer) == true && results.Length == 0)
+            popup.CompletionList.SelectedItem = null;
     }
 
     private void ApplySettings()
@@ -932,10 +964,8 @@ public sealed partial class MainWindow : Window
         ScriptEditor.ShowLineNumbers = settings.ShowLineNumbers;
         ScriptEditor.WordWrap = settings.WordWrap;
         if (!settings.ScriptIntelliSense) completion?.Close();
-        if (!settings.ConsoleIntelliSense) consoleCompletion.IsOpen = false;
-        consoleCompletion.EnterSelects = settings.ConsoleCompletionOnEnter;
+        if (!settings.ConsoleIntelliSense && completion?.TextArea == ConsoleEditor.TextArea) completion.Close();
         WorkbenchToolbar.IsVisible = settings.ShowToolbar;
-        completionTimer.Interval = TimeSpan.FromSeconds(settings.IntelliSenseTimeoutSeconds);
         autoSaveTimer.Stop();
         if (settings.AutoSaveMinutes > 0 && initialized)
         {
@@ -975,7 +1005,7 @@ public sealed partial class MainWindow : Window
 
     private void SetZoom(double percent)
     {
-        ScriptEditor.FontSize = ConsoleOutput.FontSize = ConsoleInput.FontSize = PromptText.FontSize = settings.FontSize * 4 / 3 * percent / 100;
+        ScriptEditor.FontSize = ConsoleEditor.FontSize = settings.FontSize * 4 / 3 * percent / 100;
         ZoomText.Text = $"{percent:0}%";
     }
 
@@ -1043,19 +1073,26 @@ public sealed partial class MainWindow : Window
     private async Task ReplaceAsync()
     {
         if (ScriptEditor.IsReadOnly) throw new InvalidOperationException("Resume or stop debugging before replacing script text.");
-        var find = await Dialogs.AskAsync(this, "Replace", "Find what:", ScriptEditor.SelectedText);
-        if (string.IsNullOrEmpty(find)) return;
-        var replace = await Dialogs.AskAsync(this, "Replace", "Replace with:");
-        if (replace is null) return;
-        var choice = await Dialogs.ChooseAsync(this, "Replace", "Search is case-insensitive and literal.", "Replace Next", "Replace All", "Cancel");
-        if (choice == "Replace All")
-            ScriptEditor.Document.Text = ScriptEditor.Text.Replace(find, replace, StringComparison.OrdinalIgnoreCase);
-        else if (choice == "Replace Next")
-        {
-            var offset = ScriptEditor.Text.IndexOf(find, ScriptEditor.CaretOffset, StringComparison.OrdinalIgnoreCase);
-            if (offset < 0) offset = ScriptEditor.Text.IndexOf(find, StringComparison.OrdinalIgnoreCase);
-            if (offset >= 0) { ScriptEditor.Document.Replace(offset, find.Length, replace); ScriptEditor.Select(offset, replace.Length); }
-        }
+        await new ReplaceWindow(ScriptEditor).ShowDialog(this);
+        ScriptEditor.TextArea.Focus();
+    }
+
+    private void NavigateBrace(bool select)
+    {
+        var editor = editTarget == ConsoleEditor ? ConsoleEditor : ScriptEditor;
+        var start = editor == ConsoleEditor ? displayedSession?.Console.InputStart ?? editor.Document.TextLength : 0;
+        if (editor.CaretOffset < start) return;
+        var pair = EditorAnalysis.MatchingBrace(editor.Document.GetText(start, editor.Document.TextLength - start), editor.CaretOffset - start);
+        if (pair is not { } braces) { StatusText.Text = UiText.Get("NoMatchingBrace"); return; }
+        var relativeCaret = editor.CaretOffset - start;
+        var atOpen = relativeCaret == braces.Open || relativeCaret != braces.Close && relativeCaret - 1 == braces.Open;
+        if (editor == ScriptEditor)
+            foreach (var fold in folding.AllFoldings.Where(f => f.StartOffset <= start + braces.Close && f.EndOffset >= start + braces.Open))
+                fold.IsFolded = false;
+        if (select) editor.Select(start + braces.Open, braces.Close - braces.Open + 1);
+        else editor.CaretOffset = start + (atOpen ? braces.Close : braces.Open);
+        editor.ScrollTo(editor.TextArea.Caret.Line, editor.TextArea.Caret.Column);
+        editor.TextArea.Focus();
     }
 
     private async Task GoToLineAsync()
@@ -1071,16 +1108,92 @@ public sealed partial class MainWindow : Window
 
     private async Task InsertSnippetAsync()
     {
-        if (!settings.UseDefaultSnippets) return;
-        var choice = await Dialogs.ChooseAsync(this, "Snippets", "Insert a PowerShell structure at the caret:", "Function", "ForEach", "Try / Catch", "Cancel");
-        var text = choice switch
+        if (ScriptEditor.IsReadOnly || displayedFile is null) return;
+        var snippets = await LoadSnippetsAsync();
+        var snippet = await new SnippetWindow(snippets).ShowDialog<PowerShellSnippet?>(this);
+        if (snippet is null || ScriptEditor.IsReadOnly) return;
+        var firstLine = ScriptEditor.Document.GetLineByNumber(1);
+        var newLine = firstLine.DelimiterLength == 0 ? Environment.NewLine :
+            ScriptEditor.Document.GetText(firstLine.EndOffset, firstLine.DelimiterLength);
+        InsertSnippet(ScriptEditor, snippet, newLine);
+        ScriptEditor.TextArea.Focus();
+    }
+
+    public static void InsertSnippet(TextEditor editor, PowerShellSnippet snippet, string newLine)
+    {
+        if (editor.IsReadOnly) throw new InvalidOperationException(UiText.Get("ReadOnlyReplace"));
+        var offset = editor.SelectionStart;
+        var line = editor.Document.GetLineByOffset(offset);
+        var prefix = editor.Document.GetText(line.Offset, offset - line.Offset);
+        var indentation = new string(prefix.TakeWhile(c => c is ' ' or '\t').ToArray());
+        var expanded = snippet.Expand(indentation, newLine);
+        editor.Document.Replace(offset, editor.SelectionLength, expanded.Text);
+        editor.TextArea.ClearSelection();
+        editor.CaretOffset = offset + expanded.Caret;
+    }
+
+    private async Task<IReadOnlyList<PowerShellSnippet>> LoadSnippetsAsync(bool includeDefaults = true)
+    {
+        var loaded = await SnippetCatalog.LoadAsync();
+        if (loaded.Errors.Count > 0)
         {
-            "Function" => "function Verb-Noun {\n    [CmdletBinding()]\n    param()\n\n    \n}\n",
-            "ForEach" => "foreach ($item in $collection) {\n    \n}\n",
-            "Try / Catch" => "try {\n    \n}\ncatch {\n    Write-Error $_\n}\n",
-            _ => null
-        };
-        if (text is not null && !ScriptEditor.IsReadOnly) ScriptEditor.Document.Replace(ScriptEditor.SelectionStart, ScriptEditor.SelectionLength, text);
+            var message = string.Join(Environment.NewLine, loaded.Errors);
+            System.Diagnostics.Trace.TraceError("Could not load snippets: {0}", message);
+            await Dialogs.ChooseAsync(this, UiText.Get("SnippetLoadError"), message, UiText.Get("OK"));
+        }
+        return (includeDefaults && settings.UseDefaultSnippets ? SnippetCatalog.BuiltIns : [])
+            .Concat(loaded.Snippets).Distinct().ToArray();
+    }
+
+    private async Task CreateSnippetAsync()
+    {
+        if (ScriptEditor.IsReadOnly || ScriptEditor.SelectionLength == 0)
+            throw new InvalidOperationException(UiText.Get("SelectSnippetCode"));
+        var code = ScriptEditor.SelectedText;
+        var title = await Dialogs.AskAsync(this, UiText.Get("CreateSnippet"), UiText.Get("SnippetTitle"));
+        if (title is null) return;
+        if (string.IsNullOrWhiteSpace(title)) throw new InvalidOperationException(UiText.Get("SnippetTitleRequired"));
+        var description = await Dialogs.AskAsync(this, UiText.Get("CreateSnippet"), UiText.Get("SnippetDescription"));
+        if (description is null) return;
+        var author = await Dialogs.AskAsync(this, UiText.Get("CreateSnippet"), UiText.Get("SnippetAuthor"));
+        if (author is null) return;
+        await SnippetCatalog.SaveAsync(Path.Combine(SnippetCatalog.UserDirectory, Guid.NewGuid().ToString("N") + ".snippets.ps1xml"),
+            [new(title, description, author, code)]);
+        StatusText.Text = UiText.Get("SnippetSaved");
+    }
+
+    private async Task ImportSnippetsAsync()
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new()
+        {
+            Title = UiText.Get("ImportSnippets"), AllowMultiple = true,
+            FileTypeFilter = [new("PowerShell snippets") { Patterns = ["*.snippets.ps1xml"] }]
+        });
+        var imported = new List<PowerShellSnippet>();
+        foreach (var file in files)
+        {
+            var path = file.TryGetLocalPath() ?? throw new IOException("Only local snippet files are supported.");
+            imported.AddRange(SnippetCatalog.Parse(await File.ReadAllTextAsync(path)));
+        }
+        if (imported.Count == 0) return;
+        var existing = await LoadSnippetsAsync(includeDefaults: false);
+        var added = imported.Distinct().Except(existing).ToArray();
+        if (added.Length > 0)
+            await SnippetCatalog.SaveAsync(Path.Combine(SnippetCatalog.UserDirectory, Guid.NewGuid().ToString("N") + ".snippets.ps1xml"), added);
+        StatusText.Text = string.Format(UiText.Get("SnippetsImported"), added.Length);
+    }
+
+    private async Task ExportSnippetsAsync()
+    {
+        var snippets = await LoadSnippetsAsync(includeDefaults: false);
+        if (snippets.Count == 0) throw new InvalidOperationException(UiText.Get("NoCustomSnippets"));
+        var file = await StorageProvider.SaveFilePickerAsync(new()
+        {
+            Title = UiText.Get("ExportSnippets"), SuggestedFileName = "Custom.snippets.ps1xml", ShowOverwritePrompt = true,
+            FileTypeChoices = [new("PowerShell snippets") { Patterns = ["*.snippets.ps1xml"] }]
+        });
+        if (file is null) return;
+        await SnippetCatalog.SaveAsync(file.TryGetLocalPath() ?? throw new IOException("Only local snippet files are supported."), snippets);
     }
 
     private async Task LoadProfilesAsync(SessionModel session)
@@ -1096,7 +1209,6 @@ public sealed partial class MainWindow : Window
     {
         completionTimer.Stop();
         completion?.Close();
-        consoleCompletion.IsOpen = false;
         var previousFocus = editTarget;
         var dialog = new OptionsWindow(settings, async updated =>
         {
@@ -1135,7 +1247,7 @@ public sealed partial class MainWindow : Window
         }
         if (e.Key == Key.F6)
         {
-            var panes = new Control[] { ScriptEditor, ConsoleInput, CommandSearch }.Where(c => c.IsEffectivelyVisible && c.IsEffectivelyEnabled).ToArray();
+            var panes = new Control[] { ScriptEditor, ConsoleEditor, CommandSearch }.Where(c => c.IsEffectivelyVisible && c.IsEffectivelyEnabled).ToArray();
             var index = Array.IndexOf(panes, editTarget);
             FocusInput(panes[(index + (shift ? panes.Length - 1 : 1) + panes.Length) % panes.Length]);
             e.Handled = true; return;
@@ -1157,6 +1269,7 @@ public sealed partial class MainWindow : Window
             Key.F when ctrl => "Find",
             Key.H when ctrl => "Replace",
             Key.G when ctrl => "GoToLine",
+            Key.OemCloseBrackets when ctrl => shift ? "SelectBrace" : "MatchBrace",
             Key.J when ctrl => "Snippets",
             Key.L when ctrl => "Clear",
             Key.I when ctrl => "FocusScript",
@@ -1203,7 +1316,7 @@ public sealed partial class MainWindow : Window
     private async Task GuardAsync(Func<Task> action)
     {
         try { await action(); }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or RuntimeException or JsonException or NotSupportedException or System.Text.DecoderFallbackException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException or RuntimeException or JsonException or NotSupportedException or System.Text.DecoderFallbackException or System.Xml.XmlException)
         {
             await ReportErrorAsync("Operation failed", exception);
         }

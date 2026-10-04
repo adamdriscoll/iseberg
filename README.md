@@ -1,6 +1,6 @@
 # Iseberg
 
-An original, cross-platform PowerShell ISE-style desktop workbench built with Avalonia, AvaloniaEdit, and PowerShell 7.6.6. The goal is the familiar ISE interaction model, not a web editor or a wrapper around Windows PowerShell.
+A cross-platform desktop workbench inspired by PowerShell ISE, built with Avalonia, AvaloniaEdit, and PowerShell 7.6.6.
 
 **This is an initial working implementation, not a complete or pixel-perfect replacement for Microsoft PowerShell ISE.** See [the parity inventory](docs/parity.md) for implemented behavior and remaining gaps.
 
@@ -38,11 +38,28 @@ The default view has a white script editor above the blue console, a Commands pa
 | Step over / into / out | F10 / F11 / Shift+F11 |
 | Completion / snippets | Ctrl+Space / Ctrl+J |
 | Find / replace / go to line | Ctrl+F / Ctrl+H / Ctrl+G |
+| Matching brace / select to matching brace | Ctrl+] / Ctrl+Shift+] |
 | Script top / right / maximized | Ctrl+1 / Ctrl+2 / Ctrl+3 |
 | Focus script / console | Ctrl+I / Ctrl+D |
 | Clear console | Ctrl+L |
 
 On macOS, Command is also accepted for the workbench shortcuts. Console Up/Down retrieves command history; Shift+Enter inserts a newline. Enter leaves syntactically incomplete commands open for more input. Each PowerShell tab has an independent persistent runspace, so variables, functions, current directory, and loaded modules survive successive commands without leaking into another tab.
+
+The console is one text buffer and one scrollable editor: output, earlier commands, the prompt, and current input can be selected and copied together. Only the current input is editable; transcript text and prompt characters are protected from typing, deletion, paste, and automation writes. Enter on an earlier command recalls its code into the current input without executing it. Escape dismisses completion first, or clears input when no completion is open. Output/prompt updates reset console undo so undo cannot modify the transcript; script undo histories remain independent.
+
+IntelliSense uses PowerShell completion in the active runspace. Automatic triggers include variables (`$`), command/parameter names (`-`), members (`.` / `::`), types (`[`), provider paths (`\` / `/`), and values after a parameter name and space. A new trigger refreshes an open list for the current context, such as switching from commands to parameters in `Get-Process -`. Parser context suppresses comments, literal strings, numeric decimal points, and arithmetic operators; expandable-string variables and subexpressions are supported. Ctrl+Space requests completion explicitly, even with automatic IntelliSense disabled. Console Tab / Shift+Tab cycles results when the completion list is closed. The timeout preference limits a completion query, rather than delaying its appearance.
+
+**Replace** provides literal or .NET regular-expression matching, case and whole-word options, upward search, wrap-around, and a selection-only scope. Regex replacements support capture groups such as `$1` and `${name}`; literal replacements do not interpret dollar signs. Find Next, Replace Next, and Replace All stay available in one dialog, with explicit match/error feedback. Replace All is one undoable edit. Matching-brace navigation uses parser tokens, ignores braces in comments/literal text, includes nested subexpressions, and expands script folds when needed.
+
+### Snippets
+
+Ctrl+J opens a searchable catalog with descriptions, author information, and code previews. The catalog covers all 26 ISE built-in titles: conditionals, loops, functions/advanced functions, switch, error handling, comments, classes, workflows, and DSC structures. Insertion respects document indentation and line endings, positions the caret from snippet metadata, and is undoable.
+
+**Tools > Create Snippet** saves selected script text as a custom snippet. **Import Snippets** reads standard ISE `.snippets.ps1xml` files, including title, description, author, `CaretOffset`, and `Indent`; **Export Snippets** writes the custom catalog in that format. Imports are validated before persistence, duplicate custom entries are removed, and malformed files are reported instead of silently skipped. Custom files are discovered recursively in `Iseberg/Snippets` under local application data. On Windows, the catalog also reads the user's `Documents/WindowsPowerShell/Snippets` folder without modifying those files. Disabling **Use default snippets** hides only built-ins, not custom snippets.
+
+Workflow and classic DSC entries are explicitly labeled as Windows PowerShell 5.1 templates. They are available for authoring legacy scripts, but this PowerShell 7 host does not add support for executing legacy workflow/configuration syntax. The catalog does not implement `$psISE` or the ISE snippet-management cmdlets.
+
+### Execution and profiles
 
 **Windows execution policy is respected.** If local `.ps1` files are blocked, use **Tools > Enable Local Scripts (Process Only)** and explicitly approve `RemoteSigned`. This changes only the application process, affects all its runspaces, and does not override Group Policy or change user/machine settings. Running named files uses their real paths, preserving `$PSScriptRoot`, `$PSCommandPath`, and debugger source locations. The save-before-run preference prompts for modified scripts; explicitly choosing **Run without saving** executes the edited text in memory without named-file metadata and is not allowed with breakpoints. With prompting disabled, modified named scripts are saved automatically; untitled scripts run in memory unless breakpoints require saving.
 
@@ -54,7 +71,7 @@ Scripts execute with your account's permissions. This is **not a sandbox**. The 
 
 ### Options and accessibility
 
-**Tools > Options** opens the two-tab, classic Windows-style dialog. **Colors and Fonts** provides script/console token and output-stream colors, RGB/hexadecimal editing, installed-font selection, a fixed-width font filter, point sizes, a live sample, and named themes. The default is Lucida Console at 9 points, with installed monospace fallbacks on other platforms. **General Settings** controls outlining, line numbers, duplicate-file warnings, save-before-run prompts, pane position, automatic IntelliSense and Enter selection, completion delay, local/online help, the toolbar, built-in snippets, recovery interval, and recent-file count.
+**Tools > Options** opens the two-tab, classic Windows-style dialog. **Colors and Fonts** provides script/console token and output-stream colors, RGB/hexadecimal editing, installed-font selection, a fixed-width font filter, point sizes, a live sample, and named themes. The default is Lucida Console at 9 points, with installed monospace fallbacks on other platforms. **General Settings** controls outlining, line numbers, duplicate-file warnings, save-before-run prompts, pane position, automatic IntelliSense and Enter selection, completion timeout, local/online help, the toolbar, built-in snippets, recovery interval, and recent-file count.
 
 **Apply** persists both tabs without closing the dialog; **OK** applies and closes; **Cancel** discards only changes made since the last Apply. **Restore Defaults** resets the dialog's preferences but preserves saved custom themes, recent-file history, zoom, Commands pane visibility, word wrap, and profile opt-in. Setting the recovery interval or recent-file count to `0` disables that feature.
 
@@ -88,10 +105,10 @@ Open the repository folder in VS Code and install the recommended **C#** and **A
 
 Published files go into `publish/<runtime>` and are ignored by Git. Launch paths use VS Code's platform-specific path separator, so the same configurations work on Windows, Linux, and macOS.
 
-## Architecture and provenance
+## Architecture
 
 - `src/Iseberg.Core`: persistent PowerShell host/runspace, execution, completion, debugging, parser analysis, file persistence, preferences.
 - `src/Iseberg`: native Avalonia workbench, per-file text documents/undo, highlighting, console rendering, menus, dialogs, command explorer.
 - `tests/Iseberg.Tests`: engine and headless desktop tests.
 
-The installed Windows ISE assemblies were inspected with ILSpy to understand behavior and module responsibilities. The implementation is newly authored; it does not include decompiled Microsoft source, WPF controls, proprietary editor assemblies, icons, or other ISE assets. [Reference findings](docs/ise-reference.md) explain the architectural observations and intentional replacements.
+See [the architecture overview](docs/architecture.md) for module responsibilities and design decisions.

@@ -65,18 +65,19 @@ public sealed class ScriptTab : ObservableModel
 
 public sealed class SessionModel : ObservableModel
 {
-    public sealed record ConsoleSpan(int Start, int End, OutputKind Kind, int CodeStart = 0, ScriptAnalysis? Analysis = null);
     private ScriptTab? selectedFile;
     private readonly ConcurrentQueue<OutputEntry> output = new();
     public string Name { get; }
     public PowerShellSession Engine { get; } = new();
     public ObservableCollection<ScriptTab> Files { get; } = [];
-    public TextDocument ConsoleDocument { get; } = new();
-    public List<ConsoleSpan> OutputSpans { get; } = [];
+    public ConsoleBuffer Console { get; } = new();
+    public TextDocument ConsoleDocument => Console.Document;
+    public List<ConsoleBuffer.Span> OutputSpans => Console.Spans;
     public List<string> History { get; } = [];
     public int HistoryIndex { get; set; }
     public string DraftInput { get; set; } = "";
-    public string Input { get; set; } = "";
+    public string Input { get => Console.Input; set => Console.Input = value; }
+    public int ConsoleCaretOffset { get; set; }
     public ConsoleCompletion? Completion { get; set; }
     public IReadOnlyList<CommandDescription> Commands { get; set; } = [];
     public DebugLocation? DebugLocation { get; set; }
@@ -96,40 +97,22 @@ public sealed class SessionModel : ObservableModel
 
     public bool FlushOutput()
     {
-        if (output.IsEmpty) return false;
-        ConsoleDocument.BeginUpdate();
-        try
+        var changed = !output.IsEmpty;
+        var batch = new List<OutputEntry>();
+        while (batch.Count < 2000 && output.TryDequeue(out var entry)) batch.Add(entry);
+        if (batch.Count > 0) Console.AppendBatch(batch);
+        if (Engine.State == SessionState.Ready && output.IsEmpty)
         {
-            var count = 0;
-            while (count++ < 2000 && output.TryDequeue(out var entry))
-            {
-                var start = ConsoleDocument.TextLength;
-                ConsoleDocument.Insert(start, entry.Text);
-                if (entry.Kind != OutputKind.Command && OutputSpans.Count > 0 && OutputSpans[^1].Kind == entry.Kind && OutputSpans[^1].End == start)
-                    OutputSpans[^1] = OutputSpans[^1] with { End = ConsoleDocument.TextLength };
-                else
-                    OutputSpans.Add(new(start, ConsoleDocument.TextLength, entry.Kind, start + entry.CodeStart,
-                        entry.Kind == OutputKind.Command ? EditorAnalysis.Analyze(entry.Text[entry.CodeStart..]) : null));
-            }
-            if (ConsoleDocument.TextLength > 500_000)
-            {
-                var removed = ConsoleDocument.GetLineByOffset(ConsoleDocument.TextLength - 400_000).Offset;
-                ConsoleDocument.Remove(0, removed);
-                var spans = OutputSpans.Where(s => s.End > removed)
-                    .Select(s => s with { Start = Math.Max(0, s.Start - removed), End = s.End - removed, CodeStart = s.CodeStart - removed }).ToArray();
-                OutputSpans.Clear();
-                OutputSpans.AddRange(spans);
-            }
+            changed |= !Console.HasPrompt;
+            Console.ShowPrompt(Engine.Prompt);
         }
-        finally { ConsoleDocument.EndUpdate(); }
-        return true;
+        return changed;
     }
 
     public void ClearOutput()
     {
         while (output.TryDequeue(out _)) { }
-        ConsoleDocument.Text = "";
-        OutputSpans.Clear();
+        Console.Clear();
     }
 }
 

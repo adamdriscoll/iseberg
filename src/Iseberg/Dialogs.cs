@@ -2,11 +2,20 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.LogicalTree;
 
 namespace Iseberg;
 
 public static class Dialogs
 {
+    internal static void RegisterNames(Window window)
+    {
+        var scope = new NameScope();
+        NameScope.SetNameScope(window, scope);
+        foreach (var control in window.GetLogicalDescendants().OfType<Control>())
+            if (control.Name is { Length: > 0 } name) scope.Register(name, control);
+    }
+
     public static async Task<string?> AskAsync(Window owner, string title, string message, string initial = "", bool secret = false)
     {
         var input = new TextBox { Text = initial, PasswordChar = secret ? '*' : '\0', MinWidth = 330 };
