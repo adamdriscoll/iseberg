@@ -35,6 +35,10 @@ public sealed class AccessibleTextEditor : TextEditor
         {
             EnsureEnabled();
             if (IsReadOnly) throw new InvalidOperationException("The editor is read-only.");
+            if (!editor.TextArea.ReadOnlySectionProvider.CanInsert(0) ||
+                editor.TextArea.ReadOnlySectionProvider.GetDeletableSegments(new AvaloniaEdit.Document.SimpleSegment(0, editor.Document.TextLength))
+                    .Sum(segment => segment.Length) != editor.Document.TextLength)
+                throw new InvalidOperationException("The editor contains protected text.");
             editor.Document.Replace(0, editor.Document.TextLength, value ?? "");
         }
         protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Edit;

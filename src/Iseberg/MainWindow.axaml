@@ -35,6 +35,8 @@
         <MenuItem Header="_Find..." InputGesture="Ctrl+F" Tag="Find" Click="OnAction" />
         <MenuItem Header="_Replace..." InputGesture="Ctrl+H" Tag="Replace" Click="OnAction" />
         <MenuItem Header="_Go to Line..." InputGesture="Ctrl+G" Tag="GoToLine" Click="OnAction" />
+        <MenuItem Header="Go to Matching _Brace" InputGesture="Ctrl+OemCloseBrackets" Tag="MatchBrace" Click="OnAction" />
+        <MenuItem Header="Select to Matching Brace" InputGesture="Ctrl+Shift+OemCloseBrackets" Tag="SelectBrace" Click="OnAction" />
       </MenuItem>
       <MenuItem Header="_View">
         <MenuItem Header="Show Script Pane _Top" InputGesture="Ctrl+1" Tag="Top" Click="OnAction" />
@@ -58,6 +60,9 @@
         <Separator />
         <MenuItem Header="Start _IntelliSense" InputGesture="Ctrl+Space" Tag="Complete" Click="OnAction" />
         <MenuItem Header="_Snippets..." InputGesture="Ctrl+J" Tag="Snippets" Click="OnAction" />
+        <MenuItem Header="Create Snippet..." Tag="CreateSnippet" Click="OnAction" />
+        <MenuItem Header="Import Snippets..." Tag="ImportSnippets" Click="OnAction" />
+        <MenuItem Header="Export Snippets..." Tag="ExportSnippets" Click="OnAction" />
         <MenuItem Header="Clear _Console Pane" InputGesture="Ctrl+L" Tag="Clear" Click="OnAction" />
         <Separator />
         <MenuItem Header="Load PowerShell _Profiles" Tag="Profiles" Click="OnAction" />
@@ -140,23 +145,13 @@
           <TextBlock Grid.Row="2" x:Name="Diagnostics" Foreground="{DynamicResource WindowTextBrush}" Background="{DynamicResource WindowBrush}" Padding="5,2" IsVisible="False" TextWrapping="Wrap" MaxHeight="45" AutomationProperties.Name="Script diagnostics" />
         </Grid>
         <GridSplitter x:Name="PaneSplitter" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="{DynamicResource ControlBrush}" AutomationProperties.Name="Script and console pane divider" />
-        <Grid x:Name="ConsolePane" Grid.Row="2" RowDefinitions="Auto,Auto,*" Background="#012456">
-          <local:AccessibleTextEditor x:Name="ConsoleOutput" IsReadOnly="True"
+        <Grid x:Name="ConsolePane" Grid.Row="2" RowDefinitions="*,Auto" Background="#012456">
+          <local:AccessibleTextEditor x:Name="ConsoleEditor"
                            FontFamily="Consolas, Cascadia Code, DejaVu Sans Mono, Menlo, monospace"
                            FontSize="16" Background="#012456" Foreground="White"
-                           Height="80"
                            WordWrap="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
-                           AutomationProperties.Name="Console output" />
-          <Grid Grid.Row="1" x:Name="PromptInputPanel" ColumnDefinitions="Auto,*" Margin="5,0,5,4">
-            <TextBlock x:Name="PromptText" Text="PS&gt; " Foreground="White" VerticalAlignment="Top" Margin="0,5,0,0"
-                       FontFamily="Consolas, Cascadia Code, DejaVu Sans Mono, Menlo, monospace" FontSize="16" />
-            <TextBox x:Name="ConsoleInput" Grid.Column="1" AcceptsReturn="True" TextWrapping="Wrap"
-                     Background="Transparent" Foreground="White" BorderThickness="0" Padding="0,5"
-                     MaxHeight="150" MinHeight="26"
-                     FontFamily="Consolas, Cascadia Code, DejaVu Sans Mono, Menlo, monospace" FontSize="16"
-                     AutomationProperties.Name="Console input" />
-          </Grid>
-          <Border Grid.Row="2" x:Name="ProgressPanel" IsVisible="False" Background="{DynamicResource ControlBrush}" Padding="8,4" VerticalAlignment="Bottom">
+                           AutomationProperties.Name="PowerShell console" />
+          <Border Grid.Row="1" x:Name="ProgressPanel" IsVisible="False" Background="{DynamicResource ControlBrush}" Padding="8,4" VerticalAlignment="Bottom">
             <StackPanel Spacing="3">
               <TextBlock x:Name="ProgressText" />
               <ProgressBar x:Name="ScriptProgress" Minimum="0" Maximum="100" Height="8" />

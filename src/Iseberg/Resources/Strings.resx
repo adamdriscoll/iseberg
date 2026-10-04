@@ -106,6 +106,39 @@
   <data name="Find" xml:space="preserve"><value>_Find...</value></data>
   <data name="Replace" xml:space="preserve"><value>_Replace...</value></data>
   <data name="GoToLine" xml:space="preserve"><value>_Go to Line...</value></data>
+  <data name="MatchBrace" xml:space="preserve"><value>Go to Matching _Brace</value></data>
+  <data name="SelectBrace" xml:space="preserve"><value>Select to Matching Brace</value></data>
+  <data name="NoMatchingBrace" xml:space="preserve"><value>No matching brace at the caret.</value></data>
+  <data name="CompletionTimedOut" xml:space="preserve"><value>IntelliSense timed out.</value></data>
+  <data name="FindWhat" xml:space="preserve"><value>Find what:</value></data>
+  <data name="ReplaceWith" xml:space="preserve"><value>Replace with:</value></data>
+  <data name="MatchCase" xml:space="preserve"><value>Match case</value></data>
+  <data name="WholeWord" xml:space="preserve"><value>Match whole word</value></data>
+  <data name="RegularExpression" xml:space="preserve"><value>Use regular expressions</value></data>
+  <data name="SearchUp" xml:space="preserve"><value>Search up</value></data>
+  <data name="WrapAround" xml:space="preserve"><value>Wrap around</value></data>
+  <data name="SelectionOnly" xml:space="preserve"><value>Selection only</value></data>
+  <data name="FindNext" xml:space="preserve"><value>Find Next</value></data>
+  <data name="ReplaceNext" xml:space="preserve"><value>Replace Next</value></data>
+  <data name="ReplaceAll" xml:space="preserve"><value>Replace All</value></data>
+  <data name="NoMatch" xml:space="preserve"><value>No match found.</value></data>
+  <data name="MatchFound" xml:space="preserve"><value>Match found.</value></data>
+  <data name="ReplacementCount" xml:space="preserve"><value>Replaced {0} occurrence(s).</value></data>
+  <data name="ReadOnlyReplace" xml:space="preserve"><value>The script editor is read-only.</value></data>
+  <data name="CreateSnippet" xml:space="preserve"><value>Create Snippet...</value></data>
+  <data name="ImportSnippets" xml:space="preserve"><value>Import Snippets...</value></data>
+  <data name="ExportSnippets" xml:space="preserve"><value>Export Snippets...</value></data>
+  <data name="SearchSnippets" xml:space="preserve"><value>Search snippets</value></data>
+  <data name="SnippetPreview" xml:space="preserve"><value>Snippet preview</value></data>
+  <data name="SnippetLoadError" xml:space="preserve"><value>Could not load snippets</value></data>
+  <data name="SelectSnippetCode" xml:space="preserve"><value>Select script text to create a custom snippet.</value></data>
+  <data name="SnippetTitle" xml:space="preserve"><value>Title:</value></data>
+  <data name="SnippetTitleRequired" xml:space="preserve"><value>A snippet title is required.</value></data>
+  <data name="SnippetDescription" xml:space="preserve"><value>Description:</value></data>
+  <data name="SnippetAuthor" xml:space="preserve"><value>Author:</value></data>
+  <data name="SnippetSaved" xml:space="preserve"><value>Custom snippet saved.</value></data>
+  <data name="SnippetsImported" xml:space="preserve"><value>Imported {0} custom snippet(s).</value></data>
+  <data name="NoCustomSnippets" xml:space="preserve"><value>There are no custom snippets to export.</value></data>
   <data name="PaneTop" xml:space="preserve"><value>Show Script Pane _Top</value></data>
   <data name="PaneRight" xml:space="preserve"><value>Show Script Pane _Right</value></data>
   <data name="PaneMaximized" xml:space="preserve"><value>Show Script Pane _Maximized</value></data>

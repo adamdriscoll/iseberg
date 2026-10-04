@@ -22,7 +22,7 @@ public static class TestApplication
 public sealed class DesktopTests
 {
     [AvaloniaFact]
-    public async Task ConsoleEnterRunsCommandBeforeTextBoxConsumesTheKey()
+    public async Task ConsoleEnterRunsCommandBeforeEditorConsumesTheKey()
     {
         var window = new MainWindow([], initializeOnOpen: false);
         var session = new SessionModel("PowerShell 1");
@@ -35,13 +35,16 @@ public sealed class DesktopTests
         {
             if (entry.Kind == OutputKind.Output && entry.Text.Contains("console-key-marker")) output.TrySetResult();
         };
-        var input = window.FindControl<TextBox>("ConsoleInput")!;
-        input.Text = "Write-Output 'console-key-marker'";
+        var input = window.FindControl<TextEditor>("ConsoleEditor")!;
+        session.Input = "Write-Output 'console-key-marker'";
+        input.CaretOffset = input.Document.TextLength;
         var key = new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter };
-        input.RaiseEvent(key);
+        input.TextArea.RaiseEvent(key);
         await output.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        while (session.Engine.State != SessionState.Ready) await Task.Delay(10);
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         Assert.True(key.Handled);
-        Assert.Equal("", input.Text);
+        Assert.Equal("", session.Input);
         await session.Engine.DisposeAsync();
         window.Close();
     }
@@ -63,11 +66,10 @@ public sealed class DesktopTests
     {
         var window = new MainWindow([], initializeOnOpen: false);
         Assert.NotNull(window.FindControl<TextEditor>("ScriptEditor"));
-        Assert.NotNull(window.FindControl<TextEditor>("ConsoleOutput"));
+        Assert.NotNull(window.FindControl<TextEditor>("ConsoleEditor"));
         Assert.True(window.FindControl<Border>("CommandsPane")!.IsVisible);
         Assert.Equal(12, window.FindControl<TextEditor>("ScriptEditor")!.FontSize);
-        Assert.True(window.FindControl<TextEditor>("ConsoleOutput")!.IsReadOnly);
-        Assert.False(window.FindControl<TextEditor>("ConsoleOutput")!.Options.AllowScrollBelowDocument);
+        Assert.False(window.FindControl<TextEditor>("ConsoleEditor")!.Options.AllowScrollBelowDocument);
     }
 
     [AvaloniaFact]
@@ -122,10 +124,14 @@ public sealed class DesktopTests
     }
 
     [AvaloniaFact]
-    public void RightLayoutKeepsLongPromptFromHidingConsoleInput()
+    public async Task RightLayoutWrapsLongPromptsInTheSingleConsoleBuffer()
     {
         var window = new MainWindow([], initializeOnOpen: false);
-        window.FindControl<TextBlock>("PromptText")!.Text = "PS " + new string('x', 160) + "> ";
+        var session = new SessionModel("PowerShell 1");
+        await session.Engine.InitializeAsync();
+        await session.Engine.ExecuteAsync("function prompt { 'PS ' + ('x' * 160) + '> ' }");
+        window.Workbench.Sessions.Add(session);
+        window.Workbench.SelectedSession = session;
         window.RaiseEvent(new KeyEventArgs
         {
             RoutedEvent = InputElement.KeyDownEvent,
@@ -134,10 +140,12 @@ public sealed class DesktopTests
         });
         Layout(window);
         Layout(window);
-        var input = window.FindControl<TextBox>("ConsoleInput")!;
-        Assert.Equal(0, Grid.GetColumn(input));
-        Assert.Equal(1, Grid.GetRow(input));
+        var input = window.FindControl<TextEditor>("ConsoleEditor")!;
+        Assert.True(input.WordWrap);
+        Assert.True(session.Console.HasPrompt);
+        Assert.Equal(session.Engine.Prompt.Length, session.Console.InputStart - session.Console.TranscriptEnd);
         Assert.True(input.Bounds.Width > 200, $"Console input width: {input.Bounds.Width}");
+        await session.Engine.DisposeAsync();
         window.Close();
     }
 

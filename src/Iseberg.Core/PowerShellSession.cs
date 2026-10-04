@@ -177,12 +177,12 @@ public sealed class PowerShellSession : IAsyncDisposable
             return true;
         });
 
-    public Task<CompletionSet> CompleteAsync(string text, int cursor) =>
+    public Task<CompletionSet> CompleteAsync(string text, int cursor, CancellationToken cancellationToken = default) =>
         QueryAsync(shell =>
         {
             var result = CommandCompletion.CompleteInput(text, cursor, null, shell);
             return new CompletionSet(result.ReplacementIndex, result.ReplacementLength, result.CompletionMatches.ToArray());
-        });
+        }, cancellationToken);
 
     public Task<IReadOnlyList<CommandDescription>> GetCommandsAsync() =>
         QueryAsync<IReadOnlyList<CommandDescription>>(shell =>
@@ -219,7 +219,7 @@ public sealed class PowerShellSession : IAsyncDisposable
         return null;
     });
 
-    private async Task<T> QueryAsync<T>(Func<PowerShell, T> query)
+    private async Task<T> QueryAsync<T>(Func<PowerShell, T> query, CancellationToken cancellationToken = default)
     {
         if (!await gate.WaitAsync(0))
             throw new InvalidOperationException("Wait for the running command to finish.");
@@ -229,7 +229,18 @@ public sealed class PowerShellSession : IAsyncDisposable
             return await Task.Run(() =>
             {
                 using var shell = CreateShell();
-                return query(shell);
+                using var registration = cancellationToken.Register(() => shell.Stop());
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var result = query(shell);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return result;
+                }
+                catch (PipelineStoppedException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException(cancellationToken);
+                }
             });
         }
         finally { gate.Release(); }

@@ -106,6 +106,19 @@ public sealed class ConsoleColorizer(Func<SessionModel?> session, Func<EditorThe
                     element => element.TextRunProperties.SetForegroundBrush(brush));
             }
         }
+        if (!current.Console.HasPrompt || line.EndOffset <= current.Console.InputStart) return;
+        var analysis = current.Console.InputAnalysis;
+        Token? prior = null;
+        foreach (var token in analysis.Tokens)
+        {
+            var start = current.Console.InputStart + token.Extent.StartOffset;
+            var end = current.Console.InputStart + token.Extent.EndOffset;
+            var brush = PowerShellColorizer.ColorFor(token, prior, theme(), "Console");
+            prior = token;
+            if (brush is not null && start < line.EndOffset && end > line.Offset)
+                ChangeLinePart(Math.Max(line.Offset, start), Math.Min(line.EndOffset, end),
+                    element => element.TextRunProperties.SetForegroundBrush(brush));
+        }
     }
 }
 
