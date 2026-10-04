@@ -94,7 +94,7 @@ public sealed class PowerShellSession : IAsyncDisposable
             lock (sync) stopRequested = false;
             started = true;
             SetState(SessionState.Running);
-            Output?.Invoke(new(Prompt + (filePath ?? script) + Environment.NewLine, OutputKind.Command));
+            Output?.Invoke(new(Prompt + (filePath ?? script) + Environment.NewLine, OutputKind.Command, Prompt.Length));
             await Task.Run(() =>
             {
                 using var shell = CreateShell();
@@ -200,6 +200,23 @@ public sealed class PowerShellSession : IAsyncDisposable
             .AddCommand("Out-String").AddParameter("Width", 100).Invoke<string>();
         ThrowQueryErrors(shell);
         return string.Join(Environment.NewLine, output);
+    });
+
+    public Task<Uri?> GetHelpUriAsync(string name) => QueryAsync(shell =>
+    {
+        var help = shell.AddCommand("Get-Help").AddParameter("Name", name).Invoke();
+        ThrowQueryErrors(shell);
+        foreach (var entry in help)
+        {
+            if (entry.Properties["RelatedLinks"]?.Value is not PSObject links) continue;
+            if (links.Properties["navigationLink"]?.Value is not System.Collections.IEnumerable navigation) continue;
+            foreach (var link in navigation)
+            {
+                var value = PSObject.AsPSObject(link).Properties["uri"]?.Value?.ToString();
+                if (Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http") return uri;
+            }
+        }
+        return null;
     });
 
     private async Task<T> QueryAsync<T>(Func<PowerShell, T> query)

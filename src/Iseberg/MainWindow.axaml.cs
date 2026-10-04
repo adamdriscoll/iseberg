@@ -1,6 +1,7 @@
 using System.Management.Automation;
 using System.Text.Json;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -8,6 +9,8 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
+using Avalonia.LogicalTree;
 using AvaloniaEdit;
 using AvaloniaEdit.CodeCompletion;
 using AvaloniaEdit.Document;
@@ -23,6 +26,17 @@ public sealed partial class MainWindow : Window
     private readonly string[] startupFiles;
     private readonly DispatcherTimer outputTimer;
     private readonly DispatcherTimer analysisTimer;
+    private readonly DispatcherTimer autoSaveTimer;
+    private readonly DispatcherTimer completionTimer;
+    private readonly ScriptRecovery recovery = new();
+    private bool recovering;
+    private bool autoSaving;
+    private Task autoSaveTask = Task.CompletedTask;
+    private Control? editTarget;
+    private readonly CompletionPopup consoleCompletion = new();
+    private CompletionSet? consoleCompletionResults;
+    private string consoleCompletionText = "";
+    private int consoleCompletionCaret;
     private readonly PowerShellColorizer colorizer = new();
     private FoldingManager folding;
     private readonly SearchPanel search;
@@ -41,10 +55,12 @@ public sealed partial class MainWindow : Window
 
     public MainWindow() : this([]) { }
 
-    public MainWindow(string[] args, bool initializeOnOpen = true)
+    public MainWindow(string[] args, bool initializeOnOpen = true, UserSettings? preferences = null)
     {
+        if (preferences is not null) { settings = preferences.Copy(); settings.Normalize(); }
         startupFiles = args;
         InitializeComponent();
+        Icon = AppIcon.Create();
         DataContext = Workbench;
         ScriptEditor.Options.IndentationSize = 4;
         ScriptEditor.Options.ConvertTabsToSpaces = true;
@@ -52,7 +68,7 @@ public sealed partial class MainWindow : Window
         ScriptEditor.TextArea.TextView.LineTransformers.Add(colorizer);
         ScriptEditor.TextArea.TextView.BackgroundRenderers.Add(new ScriptAdornments(
             () => displayedFile, () => displayedSession?.DebugLocation));
-        ConsoleOutput.TextArea.TextView.LineTransformers.Add(new ConsoleColorizer(() => displayedSession));
+        ConsoleOutput.TextArea.TextView.LineTransformers.Add(new ConsoleColorizer(() => displayedSession, () => settings.Theme));
         ConsoleOutput.Options.AllowScrollBelowDocument = false;
         folding = FoldingManager.Install(ScriptEditor.TextArea);
         search = SearchPanel.Install(ScriptEditor);
@@ -60,13 +76,49 @@ public sealed partial class MainWindow : Window
         outputTimer.Tick += (_, _) => FlushOutput();
         analysisTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
         analysisTimer.Tick += (_, _) => { analysisTimer.Stop(); AnalyzeScript(); };
+        autoSaveTimer = new DispatcherTimer();
+        autoSaveTimer.Tick += (_, _) =>
+        {
+            if (autoSaving || closingInProgress) return;
+            autoSaveTask = AutoSaveAsync();
+        };
+        ScriptEditor.TextArea.AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key == Key.Enter && !settings.ScriptCompletionOnEnter) completion?.Close();
+        }, RoutingStrategies.Tunnel);
+        completionTimer = new DispatcherTimer();
+        completionTimer.Tick += async (_, _) =>
+        {
+            completionTimer.Stop();
+            if (ScriptEditor.IsKeyboardFocusWithin && settings.ScriptIntelliSense) await GuardAsync(ShowCompletionAsync);
+            else if (ConsoleInput.IsFocused && settings.ConsoleIntelliSense && !string.IsNullOrWhiteSpace(ConsoleInput.Text)) await GuardAsync(ShowConsoleCompletionAsync);
+        };
         ScriptEditor.TextChanged += (_, _) => { analysisTimer.Stop(); analysisTimer.Start(); RefreshCaret(); };
         ScriptEditor.TextArea.Caret.PositionChanged += (_, _) => RefreshCaret();
         ScriptEditor.TextArea.TextEntered += async (_, e) =>
         {
-            if (e.Text is "$" or "-" or ".")
+            if (settings.ScriptIntelliSense && e.Text is "$" or "-" or ".")
                 await GuardAsync(ShowCompletionAsync);
+            else if (settings.ScriptIntelliSense) { completionTimer.Stop(); completionTimer.Start(); }
         };
+        ConsoleInput.TextChanged += (_, _) =>
+        {
+            consoleCompletion.IsOpen = false;
+            if (settings.ConsoleIntelliSense && ConsoleInput.IsFocused) { completionTimer.Stop(); completionTimer.Start(); }
+        };
+        AddHandler(GotFocusEvent, (_, e) =>
+        {
+            if (e.Source is not Control source) return;
+            var input = source.GetVisualAncestors().Prepend(source).FirstOrDefault(v => v is TextBox or TextEditor);
+            if (input is Control control) { editTarget = control; UpdateMenuState(); }
+        }, RoutingStrategies.Bubble, handledEventsToo: true);
+        consoleCompletion.PlacementTarget = ConsoleInput;
+        consoleCompletion.ItemInvoked += async (_, _) => await GuardAsync(AcceptConsoleCompletionAsync);
+        ConsoleInput.ContextMenu = CreateEditorMenu(ConsoleInput);
+        ConsoleOutput.ContextMenu = CreateEditorMenu(ConsoleOutput);
+        ScriptEditor.ContextMenu = CreateEditorMenu(ScriptEditor);
+        ConfigureMenus();
+        DesktopTheme.Changed += ApplyAppearance;
         AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
         ConsoleInput.AddHandler(KeyDownEvent, OnConsoleKeyDown, RoutingStrategies.Tunnel);
         ConsolePane.SizeChanged += (_, _) => SizeConsoleOutput();
@@ -75,7 +127,13 @@ public sealed partial class MainWindow : Window
             Opened += async (_, _) => await GuardAsync(StartAsync);
             Closing += OnClosing;
         }
-        Closed += (_, _) => { outputTimer.Stop(); analysisTimer.Stop(); };
+        Closed += (_, _) =>
+        {
+            outputTimer.Stop(); analysisTimer.Stop(); autoSaveTimer.Stop(); completionTimer.Stop();
+            consoleCompletion.IsOpen = false;
+            DesktopTheme.Changed -= ApplyAppearance;
+        };
+        ApplySettings();
     }
 
     private async Task StartAsync()
@@ -89,11 +147,12 @@ public sealed partial class MainWindow : Window
         ApplySettings();
         PopulateRecentMenu();
         await NewSessionAsync();
+        await RecoverScriptsAsync();
         foreach (var path in startupFiles)
             if (!path.StartsWith("--", StringComparison.Ordinal))
                 await OpenFileAsync(path);
         outputTimer.Start();
-        ScriptEditor.Focus();
+        ScriptEditor.TextArea.Focus();
     }
 
     private async Task NewSessionAsync()
@@ -211,6 +270,9 @@ public sealed partial class MainWindow : Window
     {
         var next = Workbench.SelectedSession;
         if (displayedSession == next) return;
+        consoleCompletion.IsOpen = false;
+        consoleCompletionResults = null;
+        completionTimer.Stop();
         if (displayedSession is not null)
             displayedSession.Input = ConsoleInput.Text ?? "";
         displayedSession = next;
@@ -258,7 +320,7 @@ public sealed partial class MainWindow : Window
     {
         colorizer.Analysis = EditorAnalysis.Analyze(ScriptEditor.Text);
         ScriptEditor.TextArea.TextView.Redraw();
-        folding.UpdateFoldings(colorizer.Analysis.Folds.Select(f => new NewFolding(f.Start, f.End)), -1);
+        folding.UpdateFoldings(settings.ShowOutlining ? colorizer.Analysis.Folds.Select(f => new NewFolding(f.Start, f.End)) : [], -1);
         Diagnostics.IsVisible = colorizer.Analysis.Errors.Length > 0;
         Diagnostics.Text = string.Join("  |  ", colorizer.Analysis.Errors.Take(3).Select(
             error => $"Line {error.Extent.StartLineNumber}: {error.Message}"));
@@ -266,7 +328,7 @@ public sealed partial class MainWindow : Window
 
     private void RefreshCaret()
     {
-        CaretText.Text = $"Ln {ScriptEditor.TextArea.Caret.Line}  Col {ScriptEditor.TextArea.Caret.Column}";
+        CaretText.Text = string.Format(UiText.Get("Caret"), ScriptEditor.TextArea.Caret.Line, ScriptEditor.TextArea.Caret.Column);
         EncodingText.Text = displayedFile?.File.EncodingName ?? "";
         Title = $"{displayedFile?.File.Title ?? "Iseberg"} - Iseberg - PowerShell 7 ISE";
     }
@@ -285,12 +347,13 @@ public sealed partial class MainWindow : Window
         PromptText.Text = displayedSession?.Engine.Prompt ?? "PS> ";
         StatusText.Text = state switch
         {
-            SessionState.Ready => "Ready",
-            SessionState.Running => "Running script / selection. Press Ctrl+Break to stop.",
-            SessionState.Debugging => $"Breakpoint at line {displayedSession?.DebugLocation?.Line}. F5: Continue  F10: Step over  F11: Step into",
-            SessionState.Disposed => "Session closed",
-            _ => "Starting PowerShell..."
+            SessionState.Ready => UiText.Get("Ready"),
+            SessionState.Running => UiText.Get("Running"),
+            SessionState.Debugging => string.Format(UiText.Get("DebugStatus"), displayedSession?.DebugLocation?.Line),
+            SessionState.Disposed => UiText.Get("SessionClosed"),
+            _ => UiText.Get("Starting")
         };
+        UpdateMenuState();
         RefreshCaret();
     }
 
@@ -317,12 +380,12 @@ public sealed partial class MainWindow : Window
             case "NewSession": await NewSessionAsync(); break;
             case "CloseSession": if (session is not null) await CloseSessionAsync(session); break;
             case "Exit": Close(); break;
-            case "Undo": ScriptEditor.Undo(); break;
-            case "Redo": ScriptEditor.Redo(); break;
-            case "Cut": ScriptEditor.Cut(); break;
-            case "Copy": if (ConsoleInput.IsFocused) ConsoleInput.Copy(); else if (ConsoleOutput.IsKeyboardFocusWithin) ConsoleOutput.Copy(); else ScriptEditor.Copy(); break;
-            case "Paste": if (ConsoleInput.IsFocused) ConsoleInput.Paste(); else ScriptEditor.Paste(); break;
-            case "SelectAll": if (ConsoleInput.IsFocused) ConsoleInput.SelectAll(); else if (ConsoleOutput.IsKeyboardFocusWithin) ConsoleOutput.SelectAll(); else ScriptEditor.SelectAll(); break;
+            case "Undo": if (editTarget is TextBox undoBox) undoBox.Undo(); else if (editTarget != ConsoleOutput) ScriptEditor.Undo(); break;
+            case "Redo": if (editTarget is TextBox redoBox) redoBox.Redo(); else if (editTarget != ConsoleOutput) ScriptEditor.Redo(); break;
+            case "Cut": if (editTarget is TextBox cutBox) cutBox.Cut(); else if (editTarget != ConsoleOutput) ScriptEditor.Cut(); break;
+            case "Copy": if (editTarget is TextBox copyBox) copyBox.Copy(); else if (editTarget == ConsoleOutput) ConsoleOutput.Copy(); else ScriptEditor.Copy(); break;
+            case "Paste": if (editTarget is TextBox pasteBox) pasteBox.Paste(); else if (editTarget != ConsoleOutput) ScriptEditor.Paste(); break;
+            case "SelectAll": if (editTarget is TextBox selectBox) selectBox.SelectAll(); else if (editTarget == ConsoleOutput) ConsoleOutput.SelectAll(); else ScriptEditor.SelectAll(); break;
             case "Find": search.Open(); search.Reactivate(); break;
             case "Replace": await ReplaceAsync(); break;
             case "GoToLine": await GoToLineAsync(); break;
@@ -361,11 +424,11 @@ public sealed partial class MainWindow : Window
             case "WordWrap": settings.WordWrap = !settings.WordWrap; ApplySettings(); break;
             case "ZoomIn": ZoomSlider.Value = Math.Min(400, ZoomSlider.Value + 5); break;
             case "ZoomOut": ZoomSlider.Value = Math.Max(20, ZoomSlider.Value - 5); break;
-            case "Fold":
+            case "Fold" when settings.ShowOutlining:
                 var collapse = folding.AllFoldings.Any(f => !f.IsFolded);
                 foreach (var fold in folding.AllFoldings) fold.IsFolded = collapse;
                 break;
-            case "FocusScript": ScriptEditor.Focus(); break;
+            case "FocusScript": ScriptEditor.TextArea.Focus(); break;
             case "FocusConsole": if (settings.Layout == "Maximized") { settings.Layout = "Top"; ApplySettings(); } ConsoleInput.Focus(); break;
             case "RefreshCommands": if (session is not null) await RefreshCommandsAsync(session); break;
             case "InsertCommand": InsertCommand(); break;
@@ -373,6 +436,7 @@ public sealed partial class MainWindow : Window
             case "CommandHelp": if (CommandList.SelectedItem is CommandDescription selected) await ShowHelpAsync(selected.Name); break;
             case "Help": await ShowHelpAsync(ScriptEditor.SelectedText.Length > 0 ? ScriptEditor.SelectedText : CommandAtCaret()); break;
             case "Profiles": if (session is not null) await LoadProfilesAsync(session); break;
+            case "AutoProfiles": settings.LoadProfiles = !settings.LoadProfiles; UpdateMenuState(); await settings.SaveAsync(); break;
             case "ExecutionPolicy":
                 if (session is not null && OperatingSystem.IsWindows() &&
                     await Dialogs.ChooseAsync(this, "Execution policy",
@@ -386,6 +450,7 @@ public sealed partial class MainWindow : Window
                     $"Iseberg\nA cross-platform PowerShell ISE-style editor and terminal.\n\nPowerShell {session?.Engine.Version}\nAvalonia + AvaloniaEdit + PowerShell SDK\n\nSee README.md and docs/parity.md for implemented behavior and known differences.");
                 break;
         }
+        if (action is "Copy" or "Cut" or "Paste" or "Undo" or "Redo" or "SelectAll") FocusInput(editTarget);
     }
 
     private async Task PickFilesAsync()
@@ -407,6 +472,10 @@ public sealed partial class MainWindow : Window
     {
         if (Workbench.SelectedSession is not { } session) return;
         var fullPath = Path.GetFullPath(path);
+        if (settings.WarnDuplicateFiles && Workbench.Sessions.Where(s => s != session).SelectMany(s => s.Files)
+                .Any(t => string.Equals(t.File.Path, fullPath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) &&
+            await Dialogs.ChooseAsync(this, "Duplicate file", "This script is already open in another PowerShell tab. Open another editable copy?", "Open", "Cancel") != "Open")
+            return;
         var existing = session.Files.FirstOrDefault(tab => string.Equals(tab.File.Path, fullPath,
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
         var tab = existing ?? new ScriptTab(await ScriptFile.OpenAsync(fullPath));
@@ -434,6 +503,8 @@ public sealed partial class MainWindow : Window
         }
         var previousPath = tab.File.Path;
         await tab.File.SaveAsync(path);
+        await autoSaveTask;
+        recovery.Remove(tab.RecoveryId);
         if (saveAs && previousPath is not null && previousPath != tab.File.Path)
         {
             var owner = Workbench.Sessions.First(s => s.Files.Contains(tab));
@@ -448,19 +519,20 @@ public sealed partial class MainWindow : Window
     {
         settings.RecentFiles.RemoveAll(p => string.Equals(p, path, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
         settings.RecentFiles.Insert(0, path);
-        if (settings.RecentFiles.Count > 10) settings.RecentFiles.RemoveRange(10, settings.RecentFiles.Count - 10);
+        if (settings.RecentFiles.Count > settings.RecentFileCount) settings.RecentFiles.RemoveRange(settings.RecentFileCount, settings.RecentFiles.Count - settings.RecentFileCount);
         PopulateRecentMenu();
     }
 
     private void PopulateRecentMenu()
     {
         RecentMenu.Items.Clear();
-        foreach (var recent in settings.RecentFiles)
+        foreach (var recent in settings.RecentFiles.Take(settings.RecentFileCount))
         {
-            var item = new MenuItem { Header = recent.Replace("_", "__") };
+            var item = new MenuItem { Header = $"_{RecentMenu.Items.Count + 1} {recent.Replace("_", "__")}" };
             item.Click += async (_, _) => await GuardAsync(() => OpenFileAsync(recent));
             RecentMenu.Items.Add(item);
         }
+        RecentMenu.IsEnabled = RecentMenu.Items.Count > 0;
     }
 
     private async Task<bool> ConfirmSaveAsync(ScriptTab tab)
@@ -475,6 +547,8 @@ public sealed partial class MainWindow : Window
         if (session.Engine.State is SessionState.Running or SessionState.Debugging)
             throw new InvalidOperationException("Stop execution before closing a script.");
         if (!await ConfirmSaveAsync(tab)) return;
+        await autoSaveTask;
+        recovery.Remove(tab.RecoveryId);
         if (tab.File.Path is not null) await session.Engine.SetBreakpointsAsync(tab.File.Path, []);
         session.Files.Remove(tab);
         if (session.SelectedFile == tab) session.SelectedFile = session.Files.LastOrDefault();
@@ -506,6 +580,8 @@ public sealed partial class MainWindow : Window
         }
         foreach (var file in session.Files)
             if (!await ConfirmSaveAsync(file)) return false;
+        await autoSaveTask;
+        foreach (var file in session.Files) recovery.Remove(file.RecoveryId);
         await session.Engine.DisposeAsync();
         Workbench.Sessions.Remove(session);
         if (Workbench.SelectedSession == session) Workbench.SelectedSession = Workbench.Sessions.LastOrDefault();
@@ -527,6 +603,18 @@ public sealed partial class MainWindow : Window
         }
         else
         {
+            if (settings.PromptToSaveBeforeRun && file.File.IsDirty)
+            {
+                var answer = await Dialogs.ChooseAsync(this, "Save before running", $"Save {file.File.Name} before running?", "Save", "Run without saving", "Cancel");
+                if (answer is null or "Cancel") return;
+                if (answer == "Save" && !await SaveFileAsync(file)) return;
+                if (answer == "Run without saving")
+                {
+                    if (file.File.Breakpoints.Count > 0) throw new InvalidOperationException("Save this script to run with breakpoints.");
+                    await session.Engine.ExecuteAsync(file.File.Text);
+                    FlushOutput(); RefreshState(); return;
+                }
+            }
             if (file.File.Path is not null || file.File.Breakpoints.Count > 0)
             {
                 if ((file.File.IsDirty || file.File.Path is null) && !await SaveFileAsync(file)) return;
@@ -543,6 +631,20 @@ public sealed partial class MainWindow : Window
     {
         if (e.Handled) return;
         if (displayedSession is not { } session) return;
+        if (consoleCompletion.IsOpen)
+        {
+            if (e.Key == Key.Escape) { consoleCompletion.IsOpen = false; e.Handled = true; return; }
+            if (e.Key is Key.Up or Key.Down)
+            {
+                consoleCompletion.SelectedIndex = Math.Clamp(consoleCompletion.SelectedIndex + (e.Key == Key.Up ? -1 : 1), 0, consoleCompletion.Items.Count - 1);
+                e.Handled = true; return;
+            }
+            if (e.Key == Key.Tab || (e.Key == Key.Enter && settings.ConsoleCompletionOnEnter))
+            {
+                e.Handled = true; await GuardAsync(AcceptConsoleCompletionAsync); return;
+            }
+            if (e.Key == Key.Enter) consoleCompletion.IsOpen = false;
+        }
         if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
         {
             var text = ConsoleInput.Text ?? "";
@@ -589,9 +691,222 @@ public sealed partial class MainWindow : Window
         session.Completion = new(original, ConsoleInput.Text, ConsoleInput.CaretIndex, index, matches);
     }
 
+    private async Task ShowConsoleCompletionAsync()
+    {
+        if (displayedSession is not { Engine.State: SessionState.Ready } session || consoleCompletion.IsOpen) return;
+        var text = ConsoleInput.Text ?? "";
+        var caret = ConsoleInput.CaretIndex;
+        var results = await session.Engine.CompleteAsync(text, caret);
+        if (session != displayedSession || text != ConsoleInput.Text || caret != ConsoleInput.CaretIndex || results.Matches.Count == 0) return;
+        consoleCompletionResults = results;
+        consoleCompletionText = text;
+        consoleCompletionCaret = caret;
+        consoleCompletion.Results = results.Matches.Take(300).ToArray();
+        consoleCompletion.SelectedIndex = 0;
+        consoleCompletion.IsOpen = true;
+    }
+
+    private Task AcceptConsoleCompletionAsync()
+    {
+        if (consoleCompletionResults is { } results && consoleCompletion.SelectedItem is { } match &&
+            consoleCompletionText == ConsoleInput.Text && consoleCompletionCaret == ConsoleInput.CaretIndex)
+        {
+            ConsoleInput.Text = consoleCompletionText.Remove(results.Start, results.Length).Insert(results.Start, match.CompletionText);
+            ConsoleInput.CaretIndex = results.Start + match.CompletionText.Length;
+        }
+        consoleCompletion.IsOpen = false;
+        ConsoleInput.Focus();
+        return Task.CompletedTask;
+    }
+
+    private void ApplyAppearance()
+    {
+        var family = new FontFamily(settings.FontFamily + ", Consolas, DejaVu Sans Mono, Menlo, monospace");
+        ScriptEditor.FontFamily = ConsoleOutput.FontFamily = ConsoleInput.FontFamily = PromptText.FontFamily = family;
+        IBrush ColorBrush(string key, string system) => DesktopTheme.HighContrast ? DesktopTheme.Brush(system) :
+            new SolidColorBrush(Color.Parse(settings.Theme.Colors[key]));
+        ScriptEditor.Background = ScriptPane.Background = ColorBrush("Script.Background", "WindowBrush");
+        ScriptEditor.Foreground = ColorBrush("Script.Foreground", "WindowTextBrush");
+        ConsolePane.Background = ColorBrush("Console.Background", "WindowBrush");
+        ConsoleOutput.Background = ConsoleInput.Background = ColorBrush("Console.TextBackground", "WindowBrush");
+        ConsoleOutput.Foreground = ConsoleInput.Foreground = PromptText.Foreground = ColorBrush("Console.Foreground", "WindowTextBrush");
+        colorizer.Theme = settings.Theme;
+        ScriptEditor.Options.HighlightCurrentLine = !DesktopTheme.HighContrast;
+        ScriptEditor.LineNumbersForeground = DesktopTheme.Brush("DisabledTextBrush");
+        ScriptEditor.TextArea.SelectionBrush = ConsoleOutput.TextArea.SelectionBrush = DesktopTheme.Brush("SelectionBrush");
+        ScriptEditor.TextArea.SelectionForeground = ConsoleOutput.TextArea.SelectionForeground = DesktopTheme.Brush("SelectionTextBrush");
+        ScriptEditor.TextArea.Caret.CaretBrush = ScriptEditor.Foreground;
+        ConsoleOutput.TextArea.Caret.CaretBrush = ConsoleOutput.Foreground;
+        ScriptEditor.TextArea.TextView.Redraw();
+        ConsoleOutput.TextArea.TextView.Redraw();
+    }
+
+    private ContextMenu CreateEditorMenu(Control editor)
+    {
+        var menu = new ContextMenu();
+        foreach (var action in new[] { "Undo", "Redo", "Cut", "Copy", "Paste", "SelectAll" })
+        {
+            var item = new MenuItem { Header = UiText.Get(action), Tag = action, Icon = new ToolbarIcon { Kind = action } };
+            item.Click += OnAction;
+            menu.Items.Add(item);
+        }
+        menu.Opening += (_, _) =>
+        {
+            editTarget = editor;
+            foreach (var item in menu.Items.OfType<MenuItem>())
+                item.IsEnabled = item.Tag is string action && CanEdit(action);
+        };
+        return menu;
+    }
+
+    private IEnumerable<MenuItem> ActionMenus()
+    {
+        foreach (var top in WorkbenchMenu.Items.OfType<MenuItem>())
+            foreach (var item in top.Items.OfType<MenuItem>())
+                yield return item;
+    }
+
+    private void ConfigureMenus()
+    {
+        var names = new[] { "FileMenu", "EditMenu", "ViewMenu", "ToolsMenu", "DebugMenu", "AddonsMenu", "HelpMenu" };
+        foreach (var (menu, index) in WorkbenchMenu.Items.OfType<MenuItem>().Select((menu, index) => (menu, index)))
+        {
+            menu.Header = UiText.Get(names[index]);
+            menu.SubmenuOpened += (_, _) => UpdateMenuState();
+        }
+        foreach (var item in ActionMenus())
+        {
+            if (item == RecentMenu) { item.Header = UiText.Get("RecentFiles"); continue; }
+            if (item.Tag is not string action) continue;
+            var key = action switch { "Top" => "PaneTop", "Right" => "PaneRight", "Maximized" => "PaneMaximized", "Options" => "OptionsMenu", _ => action };
+            item.Header = UiText.Get(key);
+            item.Icon = new ToolbarIcon { Kind = action };
+            if (action is "Top" or "Right" or "Maximized" or "Commands" or "LineNumbers" or "WordWrap")
+                item.ToggleType = MenuItemToggleType.CheckBox;
+            AutomationProperties.SetName(item, UiText.Get(key).Replace("_", ""));
+        }
+        foreach (var button in WorkbenchToolbar.GetLogicalDescendants().OfType<Button>())
+        {
+            button.Focusable = false;
+            if (button.Tag is not string action) continue;
+            var key = action switch { "Top" => "PaneTop", "Right" => "PaneRight", "Maximized" => "PaneMaximized", _ => action };
+            var label = UiText.Get(key).Replace("_", "").TrimEnd('.');
+            AutomationProperties.SetName(button, label);
+            var gesture = ActionMenus().FirstOrDefault(m => m.Tag as string == action)?.InputGesture;
+            ToolTip.SetTip(button, gesture is null ? label : $"{label} ({gesture})");
+        }
+    }
+
+    private void UpdateMenuState()
+    {
+        if (WorkbenchMenu is null) return;
+        var state = displayedSession?.Engine.State;
+        var ready = state == SessionState.Ready;
+        var paused = state == SessionState.Debugging;
+        foreach (var item in ActionMenus())
+        {
+            if (item.Tag is not string action) continue;
+            item.IsChecked = action switch
+            {
+                "Top" or "Right" or "Maximized" => action == settings.Layout,
+                "Commands" => settings.ShowCommands,
+                "LineNumbers" => settings.ShowLineNumbers,
+                "WordWrap" => settings.WordWrap,
+                "AutoProfiles" => settings.LoadProfiles,
+                _ => false
+            };
+            item.IsEnabled = action switch
+            {
+                "Run" => displayedFile is not null && (ready || paused),
+                "RunSelection" => displayedFile is not null && ready,
+                "Stop" => state is SessionState.Running or SessionState.Debugging,
+                "StepInto" or "StepOver" or "StepOut" or "Continue" => paused,
+                "Breakpoint" or "RemoveBreakpoints" or "Profiles" or "Complete" => ready,
+                "ExecutionPolicy" => ready && OperatingSystem.IsWindows(),
+                "Snippets" => settings.UseDefaultSnippets && !paused,
+                "Fold" => settings.ShowOutlining,
+                "Close" or "CloseSession" => displayedSession is not null,
+                "Save" or "SaveAs" => displayedFile is not null,
+                "Undo" or "Redo" or "Cut" or "Copy" or "Paste" or "SelectAll" => CanEdit(action),
+                "Replace" => !paused,
+                _ => true
+            };
+        }
+    }
+
+    private bool CanEdit(string action)
+    {
+        var target = editTarget ?? ScriptEditor;
+        if (target is TextBox box)
+            return action switch
+            {
+                "Undo" => !box.IsReadOnly && box.CanUndo,
+                "Redo" => !box.IsReadOnly && box.CanRedo,
+                "Copy" => box.SelectionStart != box.SelectionEnd,
+                "Cut" => !box.IsReadOnly && box.SelectionStart != box.SelectionEnd,
+                "SelectAll" => !string.IsNullOrEmpty(box.Text),
+                "Paste" => !box.IsReadOnly && box.IsEffectivelyEnabled,
+                _ => false
+            };
+        if (target is TextEditor editor)
+            return action switch
+            {
+                "Undo" => !editor.IsReadOnly && editor.Document.UndoStack.CanUndo,
+                "Redo" => !editor.IsReadOnly && editor.Document.UndoStack.CanRedo,
+                "Copy" => editor.SelectionLength > 0 || (editor.Options.CutCopyWholeLine && editor.Document.TextLength > 0),
+                "Cut" => !editor.IsReadOnly && (editor.SelectionLength > 0 || (editor.Options.CutCopyWholeLine && editor.Document.TextLength > 0)),
+                "SelectAll" => editor.Document.TextLength > 0,
+                "Paste" => !editor.IsReadOnly,
+                _ => false
+            };
+        return false;
+    }
+
+    private async Task RecoverScriptsAsync()
+    {
+        if (recovering) return;
+        recovering = true;
+        try
+        {
+            var scripts = await recovery.ReadAsync();
+            if (scripts.Count == 0 || Workbench.SelectedSession is not { } session) return;
+            var answer = await Dialogs.ChooseAsync(this, "Recover scripts", $"Recover {scripts.Count} autosaved script(s) from a previous session?",
+                "Recover", "Discard", "Cancel");
+            if (answer is null or "Cancel") return;
+            foreach (var script in scripts)
+            {
+                if (answer == "Recover")
+                {
+                    var tab = new ScriptTab(new ScriptFile(script.Name) { Text = script.Text });
+                    session.Files.Add(tab);
+                    session.SelectedFile = tab;
+                    await recovery.SaveAsync(tab.RecoveryId, tab.File);
+                }
+
+                recovery.Remove(script.Id);
+            }
+            DisplayFile();
+        }
+        finally { recovering = false; }
+    }
+
+    private async Task AutoSaveAsync()
+    {
+        autoSaving = true;
+        try
+        {
+            await GuardAsync(async () =>
+            {
+                foreach (var tab in Workbench.Sessions.SelectMany(s => s.Files).ToArray())
+                    await recovery.SaveAsync(tab.RecoveryId, tab.File);
+            });
+        }
+        finally { autoSaving = false; }
+    }
+
     private async Task ShowCompletionAsync()
     {
-        if (ConsoleInput.IsFocused) { await CompleteConsoleAsync(); return; }
+        if (editTarget == ConsoleInput) { await ShowConsoleCompletionAsync(); return; }
         if (displayedSession is not { Engine.State: SessionState.Ready } session || completion is not null) return;
         var document = ScriptEditor.Document;
         var text = document.Text;
@@ -604,6 +919,10 @@ public sealed partial class MainWindow : Window
             EndOffset = results.Start + results.Length
         };
         foreach (var match in results.Matches.Take(300)) completion.CompletionList.CompletionData.Add(new PowerShellCompletion(match));
+        completion.AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key == Key.Enter && !settings.ScriptCompletionOnEnter) { completion?.Close(); e.Handled = true; }
+        }, RoutingStrategies.Tunnel);
         completion.Closed += (_, _) => completion = null;
         completion.Show();
     }
@@ -612,6 +931,19 @@ public sealed partial class MainWindow : Window
     {
         ScriptEditor.ShowLineNumbers = settings.ShowLineNumbers;
         ScriptEditor.WordWrap = settings.WordWrap;
+        if (!settings.ScriptIntelliSense) completion?.Close();
+        if (!settings.ConsoleIntelliSense) consoleCompletion.IsOpen = false;
+        consoleCompletion.EnterSelects = settings.ConsoleCompletionOnEnter;
+        WorkbenchToolbar.IsVisible = settings.ShowToolbar;
+        completionTimer.Interval = TimeSpan.FromSeconds(settings.IntelliSenseTimeoutSeconds);
+        autoSaveTimer.Stop();
+        if (settings.AutoSaveMinutes > 0 && initialized)
+        {
+            autoSaveTimer.Interval = TimeSpan.FromMinutes(settings.AutoSaveMinutes);
+            autoSaveTimer.Start();
+        }
+        AnalyzeScript();
+        ApplyAppearance();
         ZoomSlider.Value = settings.Zoom;
         SetZoom(settings.Zoom);
         CommandsPane.IsVisible = CommandSplitter.IsVisible = settings.ShowCommands;
@@ -631,6 +963,7 @@ public sealed partial class MainWindow : Window
         PaneSplitter.ResizeDirection = right ? GridResizeDirection.Columns : GridResizeDirection.Rows;
         PaneSplitter.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
         ConsolePane.IsVisible = PaneSplitter.IsVisible = !maximized;
+        UpdateMenuState();
     }
 
     private void OnZoomChanged(object? sender, RangeBaseValueChangedEventArgs e)
@@ -642,7 +975,7 @@ public sealed partial class MainWindow : Window
 
     private void SetZoom(double percent)
     {
-        ScriptEditor.FontSize = ConsoleOutput.FontSize = ConsoleInput.FontSize = PromptText.FontSize = 16 * percent / 100;
+        ScriptEditor.FontSize = ConsoleOutput.FontSize = ConsoleInput.FontSize = PromptText.FontSize = settings.FontSize * 4 / 3 * percent / 100;
         ZoomText.Text = $"{percent:0}%";
     }
 
@@ -683,7 +1016,7 @@ public sealed partial class MainWindow : Window
     {
         if (CommandList.SelectedItem is not CommandDescription command || ScriptEditor.IsReadOnly) return;
         ScriptEditor.Document.Replace(ScriptEditor.SelectionStart, ScriptEditor.SelectionLength, command.Name + " ");
-        ScriptEditor.Focus();
+        ScriptEditor.TextArea.Focus();
     }
 
     private string CommandAtCaret()
@@ -696,6 +1029,13 @@ public sealed partial class MainWindow : Window
     private async Task ShowHelpAsync(string command)
     {
         if (displayedSession is null) return;
+        if (!settings.UseLocalHelp)
+        {
+            var uri = await displayedSession.Engine.GetHelpUriAsync(command);
+            if (uri is null) throw new InvalidOperationException("This command does not publish an online help URL. Enable local help in Options.");
+            if (!await Launcher.LaunchUriAsync(uri)) throw new InvalidOperationException("The system could not open the online help URL.");
+            return;
+        }
         var text = await displayedSession.Engine.GetHelpAsync(command);
         await Dialogs.ShowTextAsync(this, "PowerShell help - " + command, text);
     }
@@ -726,11 +1066,12 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("Enter a valid line number.");
         ScriptEditor.TextArea.Caret.Line = line;
         ScriptEditor.ScrollToLine(line);
-        ScriptEditor.Focus();
+        ScriptEditor.TextArea.Focus();
     }
 
     private async Task InsertSnippetAsync()
     {
+        if (!settings.UseDefaultSnippets) return;
         var choice = await Dialogs.ChooseAsync(this, "Snippets", "Insert a PowerShell structure at the caret:", "Function", "ForEach", "Try / Catch", "Cancel");
         var text = choice switch
         {
@@ -753,16 +1094,20 @@ public sealed partial class MainWindow : Window
 
     private async Task OptionsAsync()
     {
-        var choice = await Dialogs.ChooseAsync(this, "Options",
-            $"Zoom: {settings.Zoom:0}%\nLayout: {settings.Layout}\nLoad profiles in new tabs: {settings.LoadProfiles}\n\nPreferences are stored in:\n{UserSettings.SettingsPath}",
-            "Toggle Profiles", "Reset View", "Close");
-        if (choice == "Toggle Profiles") settings.LoadProfiles = !settings.LoadProfiles;
-        if (choice == "Reset View")
+        completionTimer.Stop();
+        completion?.Close();
+        consoleCompletion.IsOpen = false;
+        var previousFocus = editTarget;
+        var dialog = new OptionsWindow(settings, async updated =>
         {
-            settings.Zoom = 100; settings.Layout = "Top"; settings.ShowCommands = settings.ShowLineNumbers = true; settings.WordWrap = false;
+            updated.Normalize();
+            await updated.SaveAsync();
+            settings = updated;
             ApplySettings();
-        }
-        await settings.SaveAsync();
+            PopulateRecentMenu();
+        });
+        await dialog.ShowDialog(this);
+        FocusInput(previousFocus);
     }
 
     private async void OnWindowKeyDown(object? sender, KeyEventArgs e)
@@ -770,12 +1115,37 @@ public sealed partial class MainWindow : Window
         if (e.Handled) return;
         var ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
         var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        if (e.Key == Key.F10 && displayedSession?.Engine.State != SessionState.Debugging)
+        {
+            WorkbenchMenu.SelectedIndex = 0;
+            WorkbenchMenu.Items.OfType<MenuItem>().First().Focus(NavigationMethod.Tab);
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.Tab && ctrl)
+        {
+            var files = Workbench.SelectedSession?.Files;
+            if (files is { Count: > 1 })
+            {
+                var index = files.IndexOf(Workbench.SelectedSession!.SelectedFile!);
+                Workbench.SelectedSession.SelectedFile = files[(index + (shift ? files.Count - 1 : 1)) % files.Count];
+                DisplayFile(); ScriptEditor.TextArea.Focus();
+            }
+            e.Handled = true; return;
+        }
+        if (e.Key == Key.F6)
+        {
+            var panes = new Control[] { ScriptEditor, ConsoleInput, CommandSearch }.Where(c => c.IsEffectivelyVisible && c.IsEffectivelyEnabled).ToArray();
+            var index = Array.IndexOf(panes, editTarget);
+            FocusInput(panes[(index + (shift ? panes.Length - 1 : 1) + panes.Length) % panes.Length]);
+            e.Handled = true; return;
+        }
         string? action = e.Key switch
         {
             Key.F5 => shift ? "Stop" : "Run",
             Key.F8 => "RunSelection",
             Key.F9 => ctrl && shift ? "RemoveBreakpoints" : "Breakpoint",
-            Key.F10 => "StepOver",
+            Key.F10 when displayedSession?.Engine.State == SessionState.Debugging => "StepOver",
             Key.F11 => shift ? "StepOut" : "StepInto",
             Key.F1 => "Help",
             Key.Pause when ctrl => "Stop",
@@ -804,6 +1174,13 @@ public sealed partial class MainWindow : Window
         if (action is null) return;
         e.Handled = true;
         await GuardAsync(() => ActAsync(action));
+    }
+
+    private void FocusInput(Control? target)
+    {
+        if (target is null || !target.IsEffectivelyVisible || !target.IsEffectivelyEnabled) target = ScriptEditor;
+        if (target is TextEditor editor) editor.TextArea.Focus();
+        else target.Focus();
     }
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)

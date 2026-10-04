@@ -6,9 +6,10 @@
     <SimpleTheme />
     <StyleInclude Source="avares://AvaloniaEdit/Themes/Simple/AvaloniaEdit.xaml" />
     <Style Selector="Window">
-      <Setter Property="FontFamily" Value="Segoe UI, Noto Sans, DejaVu Sans" />
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="Background" Value="#F0F0F0" />
+      <Setter Property="FontFamily" Value="{DynamicResource DesktopFontFamily}" />
+      <Setter Property="FontSize" Value="{DynamicResource DesktopFontSize}" />
+      <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource ControlTextBrush}" />
     </Style>
     <Style Selector="Button.tool">
       <Setter Property="Width" Value="28" />
@@ -19,7 +20,7 @@
       <Setter Property="CornerRadius" Value="0" />
     </Style>
     <Style Selector="Button.tool:pointerover">
-      <Setter Property="Background" Value="#DCEAF8" />
+      <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
     </Style>
     <Style Selector="Button.close">
       <Setter Property="Padding" Value="3,0" />
@@ -33,23 +34,30 @@
       <Setter Property="Margin" Value="2,0,0,0" />
       <Setter Property="Padding" Value="8,4" />
       <Setter Property="MinHeight" Value="27" />
-      <Setter Property="Background" Value="#E8E8E8" />
-      <Setter Property="BorderBrush" Value="#ADADAD" />
+      <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
       <Setter Property="BorderThickness" Value="1,1,1,0" />
     </Style>
     <Style Selector="ListBoxItem">
-      <Setter Property="Foreground" Value="Black" />
+      <Setter Property="Foreground" Value="{DynamicResource WindowTextBrush}" />
       <Setter Property="Padding" Value="4,2" />
     </Style>
     <Style Selector="TabStripItem:selected">
-      <Setter Property="Background" Value="White" />
-      <Setter Property="Foreground" Value="Black" />
+      <Setter Property="Background" Value="{DynamicResource WindowBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource WindowTextBrush}" />
     </Style>
     <Style Selector="Menu">
-      <Setter Property="Background" Value="#F0F0F0" />
+      <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
     </Style>
     <Style Selector="MenuItem">
       <Setter Property="Padding" Value="7,4" />
+    </Style>
+    <Style Selector="Button:focus-visible">
+      <Setter Property="BorderBrush" Value="{DynamicResource SelectionBrush}" />
+    </Style>
+    <Style Selector="TextBox">
+      <Setter Property="SelectionBrush" Value="{DynamicResource SelectionBrush}" />
+      <Setter Property="SelectionForegroundBrush" Value="{DynamicResource SelectionTextBrush}" />
     </Style>
   </Application.Styles>
 </Application>

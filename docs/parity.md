@@ -15,19 +15,22 @@ This inventory distinguishes working behavior from the full ISE surface. "Implem
 | Host | Formatted PowerShell output, host writes, errors/warnings/verbose/debug, progress, Read-Host, secure input, choices, credential prompts, Clear-Host |
 | Debugging | Saved-script line breakpoints, breakpoint clearing, source-line highlight, continue, step into/over/out, stop |
 | Command discovery | Real command/module filtering, command definitions, insertion, execution, full local help |
-| Preferences | Layout, zoom, line numbers, wrap, command pane visibility, profile opt-in, recent files persisted to local application data |
+| Preferences | Screenshot-aligned two-tab Options dialog; RGB/hex token and stream colors, fonts/point sizes and fixed-width filter, live sample, built-in/custom themes, outlining, completion/Enter/delay, duplicate-file warning, save-before-run prompt, local/online help, toolbar/snippets, recovery interval and recent-file count; Apply/OK/Cancel/defaults; persisted layout/zoom/wrap/command pane/profile preferences |
+| Desktop presentation | Windows system colors and message-font metrics, DPI-independent Options geometry and system-text-size scaling, live high-contrast overrides, original action/menu/tab/window icons, resource-backed English Options/menu/toolbar/status labels |
+| Keyboard and accessibility | Menu accelerators, enabled/check states, focus-preserving clipboard actions, editor context menus, F10 menu focus (outside paused debugging), Ctrl+Tab document/dialog navigation, F6 pane navigation, focus cues and named controls, editor automation value/read-only providers |
+| Recovery | Atomic periodic recovery copies for unsaved scripts, startup recovery as unsaved documents, normal-close/save cleanup, other live instances excluded; original files are never autosaved |
 | Policy | Existing Windows policy respected; explicit process-only RemoteSigned action |
 | Development | Pinned SDK dependencies, engine/desktop tests, Windows/Linux/macOS CI, debug-only Avalonia developer tools |
 
 ## Not yet reproduced
 
-- Exact Windows theme metrics, all icons, high-contrast/accessibility parity, translated resources, and all focus/menu interactions.
+- Byte-for-byte Windows/WPF rendering and proprietary icons are not reproduced. Options uses the supplied English screenshots' client geometry and compact control templates, but native chrome, installed fonts, antialiasing, DPI and accessibility text scaling can change physical pixels. Full native UI Automation text-range/navigation behavior and exhaustive screen-reader/menu interaction parity remain unverified. English resource infrastructure is implemented; translated resource packs are not included.
 - ISE's single editable console buffer, auto-completion heuristics, rich replacement options, matching-brace navigation, and the complete built-in/custom snippet catalog.
 - Full Show-Command parameter-set/forms experience and expandable parameter controls.
 - Paused-debugger command evaluation, variable/watch/call-stack panes, conditional/command/variable breakpoints, breakpoint enable/disable, live breakpoint editing and break-all. Editor line breakpoints do follow text insertions/deletions.
 - Dedicated remoting tabs, interactive `Enter-PSSession`/runspace push-pop, remote file editing, and remote debugger UI.
 - `$psISE` compatibility, WPF add-on hosting, custom menu/add-on scripting, and the ISE extension object model.
-- Autosave/crash recovery, session restoration, external-file change detection, encoding picker/legacy code pages, printing, comprehensive color/theme/font options, and persisted splitter/window sizes.
+- Session restoration, external-file change detection, encoding picker/legacy code pages, printing, theme file import/export, and persisted splitter/window sizes. Recovery copies restore script text, not complete sessions or debugger state.
 - Multi-choice graphical prompts, nested prompts, full character-buffer semantics, interactive native terminal applications, and complete host color/ANSI handling.
 - Platform-specific installers, app bundles/signing, file associations, update delivery, and exhaustive Linux/macOS native-desktop verification.
 
