@@ -163,8 +163,10 @@ public sealed class RemotingTests
     {
         static void Progress(string stage)
         {
-            Directory.CreateDirectory("TestResults");
-            File.AppendAllText(Path.Combine("TestResults", "remote-save-progress.log"),
+            var directory = Path.Combine(Environment.GetEnvironmentVariable("GITHUB_WORKSPACE") ??
+                Directory.GetCurrentDirectory(), "TestResults");
+            Directory.CreateDirectory(directory);
+            File.AppendAllText(Path.Combine(directory, "remote-save-progress.log"),
                 $"[DEBUG-ci-remote-save] {DateTime.UtcNow:O} {stage}{Environment.NewLine}");
         }
         Progress("starting server");
