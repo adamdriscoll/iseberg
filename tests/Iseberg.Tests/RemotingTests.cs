@@ -286,7 +286,8 @@ public sealed class RemotingTests
 
         public static async Task<RemoteServer> StartAsync()
         {
-            var pipeName = "iseberg-test-" + Guid.NewGuid().ToString("N");
+            // Keep the name short enough for Unix sockets under macOS's long temporary paths.
+            var pipeName = Guid.NewGuid().ToString("N");
             var start = new ProcessStartInfo("pwsh")
             {
                 UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
