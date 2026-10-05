@@ -12,6 +12,9 @@
   <data name="UpdateWithoutPackage" xml:space="preserve"><value>Iseberg {0} is available (current version: {1}), but no package for this platform is uploaded yet. Open the release page?</value></data>
   <data name="UpdateCheckFailed" xml:space="preserve"><value>Could not check for updates or open the download. Iseberg can still be used; retry from Help &gt; Check for Updates. {0}</value></data>
   <data name="UpdateDownloadFailed" xml:space="preserve"><value>The release download could not be opened in your browser.</value></data>
+  <data name="NestedPromptStatus" xml:space="preserve"><value>Nested prompt - enter exit to return, or Stop to cancel execution.</value></data>
+  <data name="CommandErrorTitle" xml:space="preserve"><value>Show-Command execution errors</value></data>
+  <data name="UnsupportedTerminalControl" xml:space="preserve"><value>Unsupported terminal control was ignored. Use Start-IsebergTerminal for interactive terminal applications.</value></data>
   <data name="NewRemoteSession" xml:space="preserve"><value>New _Remote PowerShell Tab...</value></data>
   <data name="OpenRemoteFile" xml:space="preserve"><value>Open Remote File...</value></data>
   <data name="SaveRemoteFile" xml:space="preserve"><value>Save Remote File</value></data>

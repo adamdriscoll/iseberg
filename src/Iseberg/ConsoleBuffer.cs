@@ -6,7 +6,8 @@ namespace Iseberg;
 
 public sealed class ConsoleBuffer : IReadOnlySectionProvider
 {
-    public sealed record Span(int Start, int End, OutputKind Kind, int CodeStart = 0, ScriptAnalysis? Analysis = null);
+    public sealed record Span(int Start, int End, OutputKind Kind, int CodeStart = 0, ScriptAnalysis? Analysis = null,
+        OutputStyle? Style = null, IReadOnlyList<OutputEntry>? PromptStyles = null);
     public TextDocument Document { get; } = new();
     public List<Span> Spans { get; } = [];
     public int TranscriptEnd { get; private set; }
@@ -14,6 +15,10 @@ public sealed class ConsoleBuffer : IReadOnlySectionProvider
     public bool HasPrompt { get; private set; }
     private string draft = "";
     private string prompt = "";
+    private string rawPrompt = "";
+    private AnsiOutputParser ansi = new();
+    private bool warnedUnsupportedControl;
+    public IReadOnlyList<OutputEntry> PromptParts { get; private set; } = [];
     private string? analyzedInput;
     private ScriptAnalysis? inputAnalysis;
     public ScriptAnalysis InputAnalysis
@@ -51,7 +56,13 @@ public sealed class ConsoleBuffer : IReadOnlySectionProvider
 
     public void ShowPrompt(string value)
     {
-        if (HasPrompt && prompt == value) return;
+        if (HasPrompt && rawPrompt == value) return;
+        rawPrompt = value;
+        var parser = new AnsiOutputParser();
+        PromptParts = parser.Parse(new(value));
+        parser.Complete();
+        if (parser.UnsupportedControl && !warnedUnsupportedControl) Mutate(ReportUnsupportedControl);
+        value = string.Concat(PromptParts.Select(part => part.Text));
         var input = Input;
         Mutate(() =>
         {
@@ -74,28 +85,60 @@ public sealed class ConsoleBuffer : IReadOnlySectionProvider
         });
     }
 
+    public bool CompleteOutput()
+    {
+        ansi.Complete();
+        if (ansi.UnsupportedControl && !warnedUnsupportedControl)
+        {
+            Mutate(ReportUnsupportedControl);
+            return true;
+        }
+        return false;
+    }
+
+    private void ReportUnsupportedControl()
+    {
+        warnedUnsupportedControl = true;
+        AppendEntry(new(Environment.NewLine + UiText.Get("UnsupportedTerminalControl") + Environment.NewLine, OutputKind.Warning));
+    }
+
     public void Append(OutputEntry entry) => AppendBatch([entry]);
 
     public void AppendBatch(IEnumerable<OutputEntry> entries)
     {
         Mutate(() =>
         {
-            foreach (var entry in entries) AppendEntry(entry);
+            foreach (var entry in entries)
+            {
+                if (entry.Kind == OutputKind.Command)
+                {
+                    ansi.Complete();
+                    var parser = new AnsiOutputParser();
+                    var parts = parser.Parse(new(entry.Text[..entry.CodeStart]));
+                    parser.Complete();
+                    var prefix = string.Concat(parts.Select(part => part.Text));
+                    AppendEntry(entry with { Text = prefix + entry.Text[entry.CodeStart..], CodeStart = prefix.Length }, parts);
+                    if (parser.UnsupportedControl && !warnedUnsupportedControl) ReportUnsupportedControl();
+                }
+                else foreach (var part in ansi.Parse(entry)) AppendEntry(part);
+                if (ansi.UnsupportedControl && !warnedUnsupportedControl)
+                    ReportUnsupportedControl();
+            }
             Trim();
         });
     }
 
-    private void AppendEntry(OutputEntry entry)
+    private void AppendEntry(OutputEntry entry, IReadOnlyList<OutputEntry>? promptStyles = null)
     {
         var start = TranscriptEnd;
         Document.Insert(start, entry.Text);
         TranscriptEnd += entry.Text.Length;
         InputStart += entry.Text.Length;
-        if (entry.Kind != OutputKind.Command && Spans.Count > 0 && Spans[^1].Kind == entry.Kind && Spans[^1].End == start)
+        if (entry.Kind != OutputKind.Command && Spans.Count > 0 && Spans[^1].Kind == entry.Kind && Spans[^1].End == start && Spans[^1].Style == entry.Style)
             Spans[^1] = Spans[^1] with { End = TranscriptEnd };
         else
             Spans.Add(new(start, TranscriptEnd, entry.Kind, start + entry.CodeStart,
-                entry.Kind == OutputKind.Command ? EditorAnalysis.Analyze(entry.Text[entry.CodeStart..]) : null));
+                entry.Kind == OutputKind.Command ? EditorAnalysis.Analyze(entry.Text[entry.CodeStart..]) : null, entry.Style, promptStyles));
     }
 
     private void Trim()
@@ -124,6 +167,8 @@ public sealed class ConsoleBuffer : IReadOnlySectionProvider
             TranscriptEnd = 0;
             InputStart = HasPrompt ? prompt.Length : 0;
             Spans.Clear();
+            ansi = new();
+            warnedUnsupportedControl = false;
         });
     }
 
