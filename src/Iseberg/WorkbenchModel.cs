@@ -113,6 +113,8 @@ public sealed class SessionModel : ObservableModel
     private ScriptTab? selectedFile;
     private readonly ConcurrentQueue<OutputEntry> output = new();
     public string Name { get; }
+    public string DisplayName => Engine.IsRemote ? $"{Name} [{Engine.RemoteComputerName}]" : Name;
+    internal void RefreshRunspaceIdentity() => Changed(nameof(DisplayName));
     public PowerShellSession Engine { get; } = new();
     public ObservableCollection<ScriptTab> Files { get; } = [];
     public ConsoleBuffer Console { get; } = new();
@@ -137,6 +139,7 @@ public sealed class SessionModel : ObservableModel
     internal int DebugRevisionCounter;
     internal SemaphoreSlim DebugRefreshGate { get; } = new(1, 1);
     public bool Evaluating { get; set; }
+    internal bool PendingRunspaceRefresh { get; set; }
     public ScriptTab? SelectedFile
     {
         get => selectedFile;
@@ -160,7 +163,7 @@ public sealed class SessionModel : ObservableModel
         if ((Engine.State == SessionState.Ready || Engine.IsDebuggerPaused) && !Evaluating && output.IsEmpty)
         {
             changed |= !Console.HasPrompt;
-            Console.ShowPrompt(Engine.State == SessionState.Debugging ? "[DBG]: PS> " : Engine.Prompt);
+            Console.ShowPrompt(Engine.State == SessionState.Debugging ? Engine.DebugPrompt : Engine.Prompt);
         }
         return changed;
     }
@@ -177,10 +180,22 @@ public sealed class WorkbenchModel : ObservableModel
     private SessionModel? selectedSession;
     public ObservableCollection<SessionModel> Sessions { get; } = [];
     public bool HasMultipleSessions => Sessions.Count > 1;
+    public bool ShowSessionTabs => HasMultipleSessions || Sessions.Any(session => session.Engine.IsRemote);
 
     public WorkbenchModel()
     {
-        Sessions.CollectionChanged += (_, _) => Changed(nameof(HasMultipleSessions));
+        Sessions.CollectionChanged += (_, change) =>
+        {
+            foreach (var session in change.OldItems?.OfType<SessionModel>() ?? []) session.PropertyChanged -= OnSessionPropertyChanged;
+            foreach (var session in change.NewItems?.OfType<SessionModel>() ?? []) session.PropertyChanged += OnSessionPropertyChanged;
+            Changed(nameof(HasMultipleSessions));
+            Changed(nameof(ShowSessionTabs));
+        };
+    }
+
+    private void OnSessionPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(SessionModel.DisplayName)) Changed(nameof(ShowSessionTabs));
     }
 
     public SessionModel? SelectedSession

@@ -1,5 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="NewRemoteSession" xml:space="preserve"><value>New _Remote PowerShell Tab...</value></data>
+  <data name="OpenRemoteFile" xml:space="preserve"><value>Open Remote File...</value></data>
+  <data name="SaveRemoteFile" xml:space="preserve"><value>Save Remote File</value></data>
+  <data name="ExitRemoteSession" xml:space="preserve"><value>Exit Remote Session</value></data>
+  <data name="RemoteFilePath" xml:space="preserve"><value>Enter a filesystem path on the remote machine.</value></data>
+  <data name="RemoteOverwrite" xml:space="preserve"><value>This path already exists on the remote machine. Replace it?</value></data>
+  <data name="RemoteTransport" xml:space="preserve"><value>Transport</value></data>
+  <data name="RemoteAddress" xml:space="preserve"><value>SSH hostname or WSMan endpoint URI</value></data>
+  <data name="RemoteUser" xml:space="preserve"><value>User name (optional)</value></data>
+  <data name="RemotePort" xml:space="preserve"><value>SSH port</value></data>
+  <data name="RemoteKey" xml:space="preserve"><value>SSH private key path (optional, local file)</value></data>
+  <data name="RemoteSubsystem" xml:space="preserve"><value>SSH subsystem</value></data>
+  <data name="RemotePassword" xml:space="preserve"><value>WSMan password</value></data>
+  <data name="RemoteConnect" xml:space="preserve"><value>Connect</value></data>
+  <data name="RemoteAddressRequired" xml:space="preserve"><value>Enter a remote address.</value></data>
+  <data name="RemotePortInvalid" xml:space="preserve"><value>Enter an SSH port from 1 to 65535.</value></data>
+  <data name="RemoteSubsystemRequired" xml:space="preserve"><value>Enter the configured PowerShell SSH subsystem.</value></data>
+  <data name="RemoteUriInvalid" xml:space="preserve"><value>Enter an http or https WSMan endpoint URI, including its port and /wsman path.</value></data>
+  <data name="RemoteConnectionHint" xml:space="preserve"><value>The server must enable PowerShell remoting. SSH uses your local OpenSSH configuration/key authentication; WSMan uses default authentication. Host verification remains enabled. Credentials are not saved.</value></data>
   <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
   <resheader name="version"><value>2.0</value></resheader>
   <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>

@@ -24,7 +24,7 @@ On Linux, use a graphical desktop with Avalonia's native dependencies (including
 
 ## Use
 
-The default view has a white script editor above the blue console, a Commands pane on the right, and the familiar menu, toolbar, file tabs, and status/zoom bar. The PowerShell session tab row appears only when more than one session is open, so a single session's script tabs sit directly beneath the toolbar.
+The default view has a white script editor above the blue console, a Commands pane on the right, and the familiar menu, toolbar, file tabs, and status/zoom bar. The PowerShell session tab row appears when more than one session is open or a remote connection is active, so a single local session's script tabs sit directly beneath the toolbar.
 
 | Action | Shortcut |
 |---|---|
@@ -71,6 +71,18 @@ Scripts execute with your account's permissions. This is **not a sandbox**. The 
 
 `Clear-Host` and its `clear`/`cls` aliases clear the graphical console on every supported platform without invoking a native terminal program or resetting the PowerShell session.
 
+### Remoting
+
+**File > New Remote PowerShell Tab** opens a dedicated tab using SSH or WSMan. SSH accepts a hostname, optional user/key, port, and PowerShell subsystem; configure the server's SSH subsystem first and use local OpenSSH configuration/key authentication. WSMan accepts an `http`/`https` endpoint URI (including its port and `/wsman` path) and optional credentials, using default authentication. WSMan requires platform support, normally Windows. The workbench does not provision servers, bypass host/certificate verification, or save credentials.
+
+You can also run `Enter-PSSession` in any local tab, including `Enter-PSSession -Session $session` with an existing session. The host pushes that runspace; subsequent console commands, completion, command forms, and debugging use the remote connection. Tab captions and console/debugger prompts identify the remote machine. Enter `Exit-PSSession` (or `exit`) as a standalone console command, or choose **File > Exit Remote Session**, to restore the original local variables, functions, directory, and breakpoint configuration. Nested interactive sessions are rejected explicitly. Connection loss is reported in the console and restores the local runspace. Borrowed `PSSession` runspaces remain owned by PowerShell; temporary `Enter-PSSession` connections and connections created by the remote-tab dialog are closed when exited or the tab closes.
+
+**File > Open Remote File** opens a filesystem path on the active remote machine. Remote documents have a machine label, independent undo/dirty state, and retain their Unicode encoding/BOM and line endings. Save and Save As write through that connection, using an atomic replacement on the server; Save As confirms before replacing another file. Saving an untitled script in a remote tab asks for a remote path. Remote paths never enter local recent-file history. Recovery copies remain local plaintext and reopen as detached, unsaved documents rather than reconnecting automatically.
+
+F5 executes saved remote scripts at their remote paths, preserving source locations and `$PSScriptRoot`. Local files stay local: use F8 to execute their text remotely, or open/save a remote copy for named-file execution and breakpoints. A document cannot be saved or run through a different connection, even to the same machine; reopen it after reconnecting.
+
+Remote breakpoint stops open remote source in the editor and show the same Variables, Watch, Call Stack, and Breakpoints panes, with console evaluation, completion, stepping, continue, and stop. Remote variable inspection/evaluation uses only the stopped frame; callers remain navigable but cannot be inspected. Expanded objects are remoting-serialized snapshots, subject to PowerShell's serialization depth, not live local objects. Remote breakpoint specifications are kept separate from local ones and are not persisted as the local tab's debugger configuration. Desktop Show Command uses remote metadata; the console's Avalonia `Show-Command` bridge is local-only.
+
 ### Debugging
 
 F9 or a left-click in the dedicated gutter beside a script line toggles its breakpoint; the marker follows inserted/deleted text. The gutter stays separate from the text, even with line numbers hidden or the editor scrolled/wrapped. Enabled breakpoints use filled red circles, disabled breakpoints use hollow circles, and the stopped statement has an arrow. Subtle translucent line highlights preserve the editor's background and syntax colors in light/dark themes; high contrast relies on gutter symbols without tinting the text.
@@ -109,7 +121,7 @@ dotnet publish src/Iseberg -c Release -r win-x64 --self-contained true -o ./publ
 
 Use `linux-x64`, `linux-arm64`, `osx-x64`, or `osx-arm64` as appropriate. Do not enable trimming or Native AOT: the PowerShell engine and module discovery depend on reflection and dynamic loading. Release builds omit Avalonia developer tooling.
 
-The test suite exercises real PowerShell execution, session isolation, formatted output, input/cancellation, errors, command metadata, completion, script paths, breakpoints/stepping, file encodings, dirty state, parser folding, settings, and headless desktop construction.
+The test suite exercises real PowerShell execution, session isolation, formatted output, input/cancellation, errors, command metadata, completion, script paths, breakpoints/stepping, file encodings, dirty state, parser folding, settings, and headless desktop construction. Remoting tests additionally require `pwsh` on `PATH`: they launch isolated child processes and connect over PowerShell's named-pipe remoting transport, without needing an SSH/WSMan server. They exercise interactive `Enter-PSSession`, remote files, completion, debugger inspection/source navigation, stopping, and connection loss. SSH/WSMan authentication and external-server configuration still need environment-specific verification.
 
 ## Visual Studio Code
 

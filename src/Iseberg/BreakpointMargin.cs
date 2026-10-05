@@ -67,7 +67,7 @@ internal static class BreakpointVisuals
 {
     public static bool IsPausedLine(ScriptTab current, DebugLocation? location, int line) =>
         location is not null && location.Line == line &&
-        string.Equals(location.ScriptPath, current.File.Path, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        string.Equals(location.ScriptPath, current.File.Path, !current.File.IsRemote && OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     public static Color MarkerColor(EditorTheme theme, bool paused)
     {

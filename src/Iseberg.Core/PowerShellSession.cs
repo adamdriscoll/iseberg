@@ -8,7 +8,9 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly object sync = new();
     private readonly AutoResetEvent debuggerWake = new(false);
-    private readonly Runspace runspace;
+    private readonly Runspace localRunspace;
+    private readonly WorkbenchHost host;
+    private Runspace runspace => pushedRunspace ?? localRunspace;
     private PowerShell? active;
     private InputRequest? pendingInput;
     private ShowCommandRequest? pendingShowCommand;
@@ -29,8 +31,9 @@ public sealed partial class PowerShellSession : IAsyncDisposable
 
     public PowerShellSession()
     {
-        var host = new WorkbenchHost(entry => Output?.Invoke(entry), ReadInput,
-            update => ProgressChanged?.Invoke(update), () => ConsoleCleared?.Invoke(), ReadShowCommand);
+        host = new WorkbenchHost(entry => Output?.Invoke(entry), ReadInput,
+            update => ProgressChanged?.Invoke(update), () => ConsoleCleared?.Invoke(), ReadShowCommand,
+            () => runspace, () => IsRunspacePushed, remote => PushRunspace(remote, false), PopRunspace);
         var initialState = InitialSessionState.CreateDefault2();
         // The default Unix function clears a terminal instead of this graphical host.
         initialState.Commands.Remove("Clear-Host", typeof(SessionStateFunctionEntry));
@@ -64,7 +67,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
             )
             Show-IsebergCommand @PSBoundParameters
             """));
-        runspace = RunspaceFactory.CreateRunspace(host, initialState);
+        localRunspace = RunspaceFactory.CreateRunspace(host, initialState);
         runspace.ThreadOptions = PSThreadOptions.ReuseThread;
         if (OperatingSystem.IsWindows())
             runspace.ApartmentState = ApartmentState.STA;
@@ -113,6 +116,12 @@ public sealed partial class PowerShellSession : IAsyncDisposable
             Output?.Invoke(new(Prompt + (filePath ?? script) + Environment.NewLine, OutputKind.Command, Prompt.Length));
             await Task.Run(() =>
             {
+                if (IsRunspacePushed && filePath is null && IsExitSessionCommand(script))
+                {
+                    PopRunspace();
+                    RefreshPrompt();
+                    return;
+                }
                 using var shell = CreateShell();
                 try
                 {
@@ -164,7 +173,9 @@ public sealed partial class PowerShellSession : IAsyncDisposable
             resumeAction = DebuggerResumeAction.Stop;
             resumeRequested = true;
             debuggerWake.Set();
-            runspace.Debugger?.StopProcessCommand();
+            connectingRunspace?.CloseAsync();
+            if (runspace.RunspaceStateInfo.State == RunspaceState.Opened)
+                runspace.Debugger?.StopProcessCommand();
             if (active is { } shell)
                 return shell.StopAsync(null, null);
         }
@@ -196,9 +207,12 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     public Task<IReadOnlyList<CommandDescription>> GetCommandsAsync() =>
         QueryAsync<IReadOnlyList<CommandDescription>>(shell =>
         {
-            var commands = shell.AddCommand("Get-Command").Invoke<CommandInfo>();
+            var commands = shell.AddCommand("Get-Command").Invoke();
             ThrowQueryErrors(shell);
-            return DescribeCommands(commands);
+            return commands.Select(command => new CommandDescription(
+                command.Properties["Name"].Value.ToString()!, command.Properties["ModuleName"].Value?.ToString() ?? "",
+                command.Properties["CommandType"].Value.ToString()!, command.Properties["Definition"].Value?.ToString() ?? ""))
+                .OrderBy(command => command.Name, StringComparer.OrdinalIgnoreCase).DistinctBy(command => command.Name).ToArray();
         });
 
     internal static IReadOnlyList<CommandDescription> DescribeCommands(IEnumerable<CommandInfo> commands) =>
@@ -225,6 +239,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     public Task<CommandFormDescription> GetCommandFormAsync(string name, string? module = null,
         CancellationToken cancellationToken = default) => QueryAsync(shell =>
     {
+        if (IsRemote) return GetRemoteCommandForm(shell, name, module);
         shell.AddCommand("Get-Command").AddParameter("Name", WildcardPattern.Escape(name));
         if (!string.IsNullOrEmpty(module)) shell.AddParameter("Module", module);
         var commands = shell.Invoke<CommandInfo>();
@@ -270,8 +285,9 @@ public sealed partial class PowerShellSession : IAsyncDisposable
                 using var shell = CreateShell();
                 using var registration = cancellationToken.Register(() => shell.Stop());
                 cancellationToken.ThrowIfCancellationRequested();
-                var debugMode = runspace.Debugger.DebugMode;
-                runspace.Debugger.SetDebugMode(DebugModes.None);
+                var debugger = shell.Runspace.Debugger;
+                var debugMode = debugger.DebugMode;
+                debugger.SetDebugMode(DebugModes.None);
                 try
                 {
                     var result = query(shell);
@@ -282,7 +298,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
                 {
                     throw new OperationCanceledException(cancellationToken);
                 }
-                finally { runspace.Debugger.SetDebugMode(debugMode); }
+                finally { debugger.SetDebugMode(debugMode); }
             });
         }
         finally { gate.Release(); }
@@ -385,14 +401,19 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         using var shell = PowerShell.Create();
         shell.Runspace = runspace;
         shell.AddScript("prompt", useLocalScope: true);
-        var debugMode = runspace.Debugger.DebugMode;
-        runspace.Debugger.SetDebugMode(DebugModes.None);
+        var debugger = shell.Runspace.Debugger;
+        var debugMode = debugger.DebugMode;
+        debugger.SetDebugMode(DebugModes.None);
         try
         {
             IAsyncResult invocation;
             lock (sync)
             {
-                if (stopRequested) { Prompt = "PS> "; return; }
+                if (stopRequested)
+                {
+                    Prompt = IsRemote ? $"[{RemoteComputerName}]: PS> " : "PS> ";
+                    return;
+                }
                 invocation = shell.BeginInvoke();
                 active = shell;
             }
@@ -418,8 +439,9 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         finally
         {
             lock (sync) active = null;
-            runspace.Debugger.SetDebugMode(debugMode);
+            debugger.SetDebugMode(debugMode);
         }
+        if (IsRemote) Prompt = $"[{RemoteComputerName}]: " + Prompt;
     }
 
     private void SetState(SessionState state)
@@ -436,8 +458,9 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         {
             if (disposed) return;
             disposed = true;
-            if (runspace.Debugger is { } debugger) debugger.DebuggerStop -= OnDebuggerStop;
-            await Task.Run(runspace.Dispose);
+            if (pushedRunspace is not null) PopRunspace();
+            if (localRunspace.Debugger is { } debugger) debugger.DebuggerStop -= OnDebuggerStop;
+            await Task.Run(localRunspace.Dispose);
             debuggerWake.Dispose();
             SetState(SessionState.Disposed);
         }

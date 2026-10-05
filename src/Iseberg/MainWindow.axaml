@@ -19,6 +19,9 @@
         <MenuItem x:Name="RecentMenu" Header="Recent _Files" />
         <Separator />
         <MenuItem Header="New _PowerShell Tab" InputGesture="Ctrl+T" Tag="NewSession" Click="OnAction" />
+        <MenuItem Tag="NewRemoteSession" Click="OnAction" />
+        <MenuItem Tag="OpenRemoteFile" Click="OnAction" />
+        <MenuItem Tag="ExitRemoteSession" Click="OnAction" />
         <MenuItem Header="Close PowerShell Tab" InputGesture="Ctrl+Shift+W" Tag="CloseSession" Click="OnAction" />
         <Separator />
         <MenuItem Header="E_xit" InputGesture="Alt+F4" Tag="Exit" Click="OnAction" />
@@ -116,11 +119,11 @@
         <Button Classes="tool" Tag="Commands" Click="OnAction" ToolTip.Tip="Show commands (Ctrl+Shift+C)" AutomationProperties.Name="Commands pane"><local:ToolbarIcon Kind="Commands" /></Button>
       </StackPanel>
     </Border>
-    <TabStrip Grid.Row="2" x:Name="SessionTabs" IsVisible="{Binding HasMultipleSessions}" ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}" SelectionChanged="OnSessionChanged" Background="{DynamicResource ControlBrush}">
+    <TabStrip Grid.Row="2" x:Name="SessionTabs" IsVisible="{Binding ShowSessionTabs}" ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}" SelectionChanged="OnSessionChanged" Background="{DynamicResource ControlBrush}">
       <TabStrip.ItemTemplate>
         <DataTemplate>
           <StackPanel Orientation="Horizontal" Spacing="8">
-            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" />
             <Button Classes="close" Click="OnCloseSession" ToolTip.Tip="{local:Ui ClosePowerShellTab}" AutomationProperties.Name="{local:Ui ClosePowerShellTab}"><local:ToolbarIcon Kind="Close" Width="10" Height="10" /></Button>
           </StackPanel>
         </DataTemplate>

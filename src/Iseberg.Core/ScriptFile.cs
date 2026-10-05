@@ -15,8 +15,11 @@ public sealed class ScriptFile : INotifyPropertyChanged
     public SortedSet<int> Breakpoints { get; } = [];
     public int CaretOffset { get; set; }
     public string? Path => path;
-    public string Name => path is null ? UntitledName : System.IO.Path.GetFileName(path);
-    public string Title => Name + (IsDirty ? "*" : "");
+    public Guid? RemoteRunspaceId { get; private set; }
+    public string? RemoteComputerName { get; private set; }
+    public bool IsRemote => RemoteRunspaceId is not null;
+    public string Name => path is null ? UntitledName : path.Split('\\', '/')[^1];
+    public string Title => Name + (IsRemote ? $" [{RemoteComputerName}]" : "") + (IsDirty ? "*" : "");
     public bool IsDirty => text != savedText;
     public string EncodingName => encoding.CodePage switch
     {
@@ -55,6 +58,7 @@ public sealed class ScriptFile : INotifyPropertyChanged
 
     public async Task SaveAsync(string filePath)
     {
+        if (IsRemote) throw new InvalidOperationException("Use the owning remote session to save this document.");
         var fullPath = System.IO.Path.GetFullPath(filePath);
         var snapshot = Text;
         var temporary = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -81,6 +85,29 @@ public sealed class ScriptFile : INotifyPropertyChanged
         {
             if (File.Exists(temporary)) File.Delete(temporary);
         }
+    }
+
+    public static ScriptFile FromRemoteBytes(string path, byte[] bytes, Guid runspaceId, string computerName)
+    {
+        var (encoding, skip) = DetectEncoding(bytes);
+        var file = new ScriptFile(path.Split('\\', '/')[^1])
+        {
+            path = path, encoding = encoding, RemoteRunspaceId = runspaceId, RemoteComputerName = computerName
+        };
+        file.text = file.savedText = encoding.GetString(bytes, skip, bytes.Length - skip);
+        return file;
+    }
+
+    internal byte[] Encode(string snapshot) => encoding.GetPreamble().Concat(encoding.GetBytes(snapshot)).ToArray();
+
+    internal void MarkRemoteSaved(string savedPath, string snapshot, Guid runspaceId, string computerName)
+    {
+        path = savedPath;
+        savedText = snapshot;
+        RemoteRunspaceId = runspaceId;
+        RemoteComputerName = computerName;
+        Changed(nameof(Path)); Changed(nameof(Name)); Changed(nameof(Title)); Changed(nameof(IsDirty));
+        Changed(nameof(IsRemote)); Changed(nameof(RemoteRunspaceId));
     }
 
     private static (Encoding Encoding, int Skip) DetectEncoding(byte[] bytes)

@@ -87,7 +87,7 @@ public sealed partial class PowerShellSession
 
     public Task EvaluateAsync(string script) => PausedQueryAsync(() =>
     {
-        Output?.Invoke(new("[DBG]: PS> " + script + Environment.NewLine, OutputKind.Command, 11));
+        Output?.Invoke(new(DebugPrompt + script + Environment.NewLine, OutputKind.Command, DebugPrompt.Length));
         var command = new PSCommand();
         command.AddScript(script, useLocalScope: false).AddCommand("Out-Default");
         using var output = new PSDataCollection<PSObject>();
@@ -124,26 +124,34 @@ public sealed partial class PowerShellSession
         var expressions = watches.ToArray();
         return PausedQueryAsync(() =>
         {
-            var frames = runspace.Debugger.GetCallStack().ToArray();
+            if (IsRemote && frameIndex != 0)
+                throw new InvalidOperationException("Remote PowerShell exposes evaluation only in the stopped frame. Select the stopped frame to inspect variables.");
+            var frames = IsRemote ? [] : runspace.Debugger.GetCallStack().ToArray();
             if (frameIndex < 0 || frameIndex > 0 && frameIndex >= frames.Length)
                 throw new InvalidOperationException("The selected call-stack frame no longer exists.");
             var scope = frames.Take(frameIndex).Count(frame => frame.InvocationInfo.InvocationName != ".");
-            var frameVariables = frameIndex == 0
+            var remoteVariables = IsRemote ? Inspect("Microsoft.PowerShell.Utility\\Get-Variable") : [];
+            var frameVariables = IsRemote ? [] : frameIndex == 0
                 ? Inspect("Microsoft.PowerShell.Utility\\Get-Variable").Select(value => value.BaseObject).OfType<PSVariable>()
                 : Inspect($"Microsoft.PowerShell.Utility\\Get-Variable -Scope {scope}")
                     .Select(value => value.BaseObject).OfType<PSVariable>();
             var scopedVariables = frameVariables.ToArray();
-            var frameLocals = frames.Length > 0 ? frames[frameIndex].GetFrameVariables() : new Dictionary<string, PSVariable>();
+            var frameLocals = !IsRemote && frames.Length > 0 ? frames[frameIndex].GetFrameVariables() : new Dictionary<string, PSVariable>();
             // Call-stack depth is not scope depth across dotted/module boundaries.
             if (frameIndex > 0 && (!frameLocals.TryGetValue("MyInvocation", out var expected) ||
                 !ReferenceEquals(expected.Value, scopedVariables.FirstOrDefault(variable => variable.Name.Equals("MyInvocation", StringComparison.OrdinalIgnoreCase))?.Value)))
                 throw new InvalidOperationException("PowerShell does not expose the selected frame's variable scope. Select another frame.");
             debugValues.Clear();
             frameVariables = scopedVariables.Concat(frameLocals.Values).DistinctBy(variable => variable.Name, StringComparer.OrdinalIgnoreCase);
-            var variables = frameVariables
+            var variables = IsRemote ? remoteVariables
+                .OrderBy(value => value.Properties["Name"]?.Value?.ToString(), StringComparer.OrdinalIgnoreCase)
+                .Select(value => DescribeValue("$" + value.Properties["Name"]?.Value, value.Properties["Value"]?.Value)).ToArray() : frameVariables
                 .OrderBy(variable => variable.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(variable => DescribeValue("$" + variable.Name, variable.Value)).ToArray();
-            var stack = frames.Select((frame, index) =>
+            var stack = IsRemote ? Inspect(new PSCommand().AddCommand("Get-PSCallStack")).Select((frame, index) =>
+                new DebugFrame(frame.Properties["FunctionName"].Value?.ToString() ?? "<remote>",
+                    frame.Properties["ScriptName"].Value?.ToString(),
+                    Convert.ToInt32(frame.Properties["ScriptLineNumber"].Value), index)).ToArray() : frames.Select((frame, index) =>
                 new DebugFrame(frame.FunctionName, frame.ScriptName, frame.ScriptLineNumber, index)).ToArray();
             var values = expressions.Select(expression =>
             {
@@ -290,7 +298,7 @@ public sealed partial class PowerShellSession
         return BreakpointQueryAsync(() =>
         {
             var existing = runspace.Debugger.GetBreakpoints().OfType<LineBreakpoint>().Where(breakpoint =>
-                string.Equals(breakpoint.Script, path, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)).ToList();
+                string.Equals(breakpoint.Script, path, !IsRemote && OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)).ToList();
             var added = new List<Breakpoint>();
             try
             {
@@ -338,7 +346,7 @@ public sealed partial class PowerShellSession
             BreakpointKind.Variable => runspace.Debugger.SetVariableBreakpoint(spec.Target.TrimStart('$'), spec.AccessMode, action, script),
             _ => throw new ArgumentException("Invalid breakpoint kind.")
         };
-        if (!spec.Enabled) runspace.Debugger.DisableBreakpoint(breakpoint);
+        if (!spec.Enabled) breakpoint = runspace.Debugger.DisableBreakpoint(breakpoint);
         breakpointSpecs[breakpoint.Id] = spec;
         return breakpoint;
     }
