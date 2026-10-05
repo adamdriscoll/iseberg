@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="NestedPromptStatus" xml:space="preserve"><value>Nested prompt - enter exit to return, or Stop to cancel execution.</value></data>
+  <data name="CommandErrorTitle" xml:space="preserve"><value>Show-Command execution errors</value></data>
+  <data name="UnsupportedTerminalControl" xml:space="preserve"><value>Unsupported terminal control was ignored. Use Start-IsebergTerminal for interactive terminal applications.</value></data>
   <data name="NewRemoteSession" xml:space="preserve"><value>New _Remote PowerShell Tab...</value></data>
   <data name="OpenRemoteFile" xml:space="preserve"><value>Open Remote File...</value></data>
   <data name="SaveRemoteFile" xml:space="preserve"><value>Save Remote File</value></data>
