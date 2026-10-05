@@ -167,8 +167,10 @@ public sealed class DesktopTests
             session.Engine.Resume(System.Management.Automation.DebuggerResumeAction.Continue);
             await execution.WaitAsync(TimeSpan.FromSeconds(20));
             await WaitForUiAsync(() => session.DebugSnapshot is null);
-            await session.Engine.ExitRemoteSessionAsync();
-            await WaitForUiAsync(() => session.Breakpoints.Count == 1 && !session.DisplayName.Contains('['), TestTimeouts.CommandDiscovery);
+            // Keep UI notifications queued so the engine identity changes before the breakpoint list.
+            Task.Run(session.Engine.ExitRemoteSessionAsync).WaitAsync(TimeSpan.FromSeconds(20)).GetAwaiter().GetResult();
+            await WaitForUiAsync(() => session.Breakpoints.Count == 1 && session.Breakpoints[0].Spec.Line == 1 &&
+                !session.DisplayName.Contains('['), TestTimeouts.CommandDiscovery);
             Assert.Equal(1, session.Breakpoints.Single().Spec.Line);
             Assert.Equal(2, session.Files.Count);
         }
