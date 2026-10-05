@@ -56,6 +56,7 @@ public sealed partial class MainWindow
         Interlocked.Increment(ref session.DebugRevisionCounter);
         Dispatcher.UIThread.Post(async () =>
         {
+            if (windowClosed || !Workbench.Sessions.Contains(session)) return;
             session.PendingRunspaceRefresh = true;
             session.RefreshRunspaceIdentity();
             session.Completion = null;
@@ -80,12 +81,13 @@ public sealed partial class MainWindow
 
     private async Task RefreshChangedRunspaceAsync(SessionModel session)
     {
-        if (!session.PendingRunspaceRefresh || !Workbench.Sessions.Contains(session) ||
+        if (windowClosed || !session.PendingRunspaceRefresh || !Workbench.Sessions.Contains(session) ||
             session.Engine.State != SessionState.Ready) return;
         session.PendingRunspaceRefresh = false;
         await GuardAsync(async () =>
         {
             await RefreshCommandsAsync(session);
+            if (windowClosed || !Workbench.Sessions.Contains(session)) return;
             await RefreshDebuggerAsync(session, reconcile: true);
         });
     }

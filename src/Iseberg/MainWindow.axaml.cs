@@ -49,6 +49,8 @@ public sealed partial class MainWindow : Window
     private bool closingInProgress;
     private int commandRequestVersion;
     private CancellationTokenSource? commandFormCancellation;
+    private readonly CancellationTokenSource windowCancellation = new();
+    private bool windowClosed;
     private bool updatingCommandList;
     private readonly Dictionary<SessionModel, Action<ShowCommandRequest>> showCommandHandlers = [];
     private bool completionPending;
@@ -167,10 +169,15 @@ public sealed partial class MainWindow : Window
         }
         Closed += (_, _) =>
         {
+            windowClosed = true;
+            ++commandRequestVersion;
+            windowCancellation.Cancel();
             outputTimer.Stop(); analysisTimer.Stop(); autoSaveTimer.Stop(); completionTimer.Stop();
             completion?.Close();
             commandFormCancellation?.Cancel();
             commandFormCancellation?.Dispose();
+            commandFormCancellation = null;
+            windowCancellation.Dispose();
             foreach (var (session, handler) in showCommandHandlers)
                 session.Engine.ShowCommandRequested -= handler;
             showCommandHandlers.Clear();
@@ -1218,10 +1225,14 @@ public sealed partial class MainWindow : Window
 
     private async Task RefreshCommandsAsync(SessionModel session)
     {
+        if (windowClosed || !Workbench.Sessions.Contains(session)) return;
         var version = ++commandRequestVersion;
         var runspaceId = session.Engine.RunspaceId;
-        var commands = await session.Engine.GetCommandsAsync();
-        if (runspaceId != session.Engine.RunspaceId) return;
+        IReadOnlyList<CommandDescription> commands;
+        try { commands = await session.Engine.GetCommandsAsync(windowCancellation.Token); }
+        catch (OperationCanceledException) when (windowCancellation.IsCancellationRequested) { return; }
+        if (windowClosed || !Workbench.Sessions.Contains(session) || session.Engine.State == SessionState.Disposed ||
+            runspaceId != session.Engine.RunspaceId) return;
         session.Commands = commands;
         session.CommandForms.Clear();
         if (session == displayedSession && version == commandRequestVersion) SetCommandModules();
@@ -1229,6 +1240,7 @@ public sealed partial class MainWindow : Window
 
     private void SetCommandModules()
     {
+        if (windowClosed) return;
         updatingCommandList = true;
         ModuleFilter.ItemsSource = new[] { "All" }.Concat((displayedSession?.Commands ?? [])
             .Select(c => c.Module).Where(m => m.Length > 0).Distinct().Order());
@@ -1260,13 +1272,15 @@ public sealed partial class MainWindow : Window
     }
     private async void SelectCommand()
     {
+        if (windowClosed) return;
         await GuardAsync(LoadCommandFormAsync);
     }
     private async Task LoadCommandFormAsync()
     {
+        if (windowClosed) return;
         commandFormCancellation?.Cancel();
         commandFormCancellation?.Dispose();
-        var cancellation = commandFormCancellation = new();
+        var cancellation = commandFormCancellation = CancellationTokenSource.CreateLinkedTokenSource(windowCancellation.Token);
         var session = displayedSession;
         var runspaceId = session?.Engine.RunspaceId;
         var command = CommandList.SelectedItem as CommandDescription;
@@ -1279,7 +1293,7 @@ public sealed partial class MainWindow : Window
             {
                 var description = await session.Engine.GetCommandFormAsync(command.Name, command.Module, cancellation.Token);
                 form = new(description);
-                if (session.Engine.RunspaceId != runspaceId) return;
+                if (windowClosed || cancellation.IsCancellationRequested || session.Engine.RunspaceId != runspaceId) return;
                 session.CommandForms[command.Name] = form;
             }
             if (!cancellation.IsCancellationRequested && displayedSession == session && ReferenceEquals(CommandList.SelectedItem, command))
@@ -1675,6 +1689,7 @@ public sealed partial class MainWindow : Window
     private async Task ReportErrorAsync(string title, Exception exception)
     {
         System.Diagnostics.Trace.TraceError("{0}: {1}", title, exception);
+        if (windowClosed) return;
         StatusText.Text = title + ": " + exception.Message;
         await Dialogs.ChooseAsync(this, title, exception.Message, "OK");
     }

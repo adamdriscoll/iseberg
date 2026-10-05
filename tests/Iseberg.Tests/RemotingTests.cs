@@ -13,6 +13,30 @@ namespace Iseberg.Tests;
 public sealed class RemotingTests
 {
     [Fact]
+    public async Task RemoteCommandDiscoveryDoesNotSerializeUnusedMetadata()
+    {
+        await using var server = await RemoteServer.StartAsync();
+        await using var session = new PowerShellSession();
+        var output = new ConcurrentQueue<OutputEntry>();
+        session.Output += output.Enqueue;
+        await session.InitializeAsync();
+        await session.ConnectAsync(server.Connection);
+        await session.ExecuteAsync("""
+            $global:unusedMetadataSerializationCount = 0
+            function global:Get-Command {
+                Microsoft.PowerShell.Core\Get-Command -Name Get-Process |
+                    Add-Member -MemberType ScriptProperty -Name UnusedMetadata -Value {
+                        $global:unusedMetadataSerializationCount++
+                        'This property is not part of command discovery.'
+                    } -PassThru
+            }
+            """);
+        Assert.Equal("Get-Process", (await session.GetCommandsAsync()).Single().Name);
+        await session.ExecuteAsync("'unused-metadata=' + $global:unusedMetadataSerializationCount");
+        Assert.Contains(output, entry => entry.Kind == OutputKind.Output && entry.Text.Contains("unused-metadata=0"));
+    }
+
+    [Fact]
     public async Task DedicatedConnectionRoutesExecutionMetadataCompletionAndRestoresLocalState()
     {
         await using var server = await RemoteServer.StartAsync();

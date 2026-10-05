@@ -27,6 +27,55 @@ public static class TestApplication
 public sealed class DesktopTests
 {
     [AvaloniaFact]
+    public async Task ClosingDuringCommandDiscoveryDoesNotPublishMetadataOrOpenAnErrorDialog()
+    {
+        var window = new MainWindow([], initializeOnOpen: false);
+        var session = new SessionModel("PowerShell 1");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcherErrors = new List<Exception>();
+        void OnDispatcherError(object? sender, Avalonia.Threading.DispatcherUnhandledExceptionEventArgs args)
+        {
+            dispatcherErrors.Add(args.Exception);
+            args.Handled = true;
+        }
+        Avalonia.Threading.Dispatcher.UIThread.UnhandledException += OnDispatcherError;
+        try
+        {
+            await session.Engine.InitializeAsync();
+            await session.Engine.ExecuteAsync("""
+                function Get-Command {
+                    Write-Host 'closing-discovery-started'
+                    Start-Sleep -Milliseconds 500
+                    Microsoft.PowerShell.Core\Get-Command @args
+                }
+                """);
+            session.Engine.Output += entry =>
+            {
+                if (entry.Kind == OutputKind.Output && entry.Text.Contains("closing-discovery-started"))
+                    started.TrySetResult();
+            };
+            window.Workbench.Sessions.Add(session);
+            window.Workbench.SelectedSession = session;
+            Layout(window);
+            session.SelectedCommand = "Get-Process";
+            window.FindControl<Button>("CommandRefreshButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            window.Close();
+            await session.Engine.DisposeAsync();
+            await Task.Delay(100);
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Assert.Empty(session.Commands);
+            Assert.Empty(dispatcherErrors);
+        }
+        finally
+        {
+            Avalonia.Threading.Dispatcher.UIThread.UnhandledException -= OnDispatcherError;
+            if (session.Engine.State != Iseberg.Core.SessionState.Disposed) await session.Engine.DisposeAsync();
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public async Task RemoteConnectionDialogValidatesAndCreatesBothTransportConfigurations()
     {
         var owner = new MainWindow([], initializeOnOpen: false);
@@ -86,7 +135,7 @@ public sealed class DesktopTests
             var local = session.SelectedFile!;
             await session.Engine.SetBreakpointsAsync(path, [1]);
             await session.Engine.ConnectAsync(server.Connection);
-            await WaitForUiAsync(() => session.Commands.Count > 0 && session.DisplayName.Contains('['));
+            await WaitForUiAsync(() => session.Commands.Count > 0 && session.DisplayName.Contains('['), TestTimeouts.CommandDiscovery);
             Assert.True(window.FindControl<TabStrip>("SessionTabs")!.Items.Count == 1);
             Assert.True(window.FindControl<TabStrip>("SessionTabs")!.IsVisible);
             await window.OpenRemoteFileAsync(path);
@@ -459,9 +508,9 @@ public sealed class DesktopTests
         }
     }
 
-    private static async Task WaitForUiAsync(Func<bool> condition)
+    private static async Task WaitForUiAsync(Func<bool> condition, TimeSpan? timeout = null)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
+        var deadline = DateTime.UtcNow.Add(timeout ?? TimeSpan.FromSeconds(10));
         while (!condition() && DateTime.UtcNow < deadline)
         {
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();

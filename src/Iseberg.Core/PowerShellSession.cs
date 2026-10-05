@@ -204,16 +204,20 @@ public sealed partial class PowerShellSession : IAsyncDisposable
             return new CompletionSet(result.ReplacementIndex, result.ReplacementLength, result.CompletionMatches.ToArray());
         }, cancellationToken);
 
-    public Task<IReadOnlyList<CommandDescription>> GetCommandsAsync() =>
+    public Task<IReadOnlyList<CommandDescription>> GetCommandsAsync(CancellationToken cancellationToken = default) =>
         QueryAsync<IReadOnlyList<CommandDescription>>(shell =>
         {
-            var commands = shell.AddCommand("Get-Command").Invoke();
+            shell.AddCommand("Get-Command");
+            if (IsRemote)
+                shell.AddCommand("Microsoft.PowerShell.Utility\\Select-Object")
+                    .AddParameter("Property", new[] { "Name", "ModuleName", "CommandType", "Definition" });
+            var commands = shell.Invoke();
             ThrowQueryErrors(shell);
             return commands.Select(command => new CommandDescription(
                 command.Properties["Name"].Value.ToString()!, command.Properties["ModuleName"].Value?.ToString() ?? "",
                 command.Properties["CommandType"].Value.ToString()!, command.Properties["Definition"].Value?.ToString() ?? ""))
                 .OrderBy(command => command.Name, StringComparer.OrdinalIgnoreCase).DistinctBy(command => command.Name).ToArray();
-        });
+        }, cancellationToken);
 
     internal static IReadOnlyList<CommandDescription> DescribeCommands(IEnumerable<CommandInfo> commands) =>
         commands.OrderBy(command => command.Name, StringComparer.OrdinalIgnoreCase)

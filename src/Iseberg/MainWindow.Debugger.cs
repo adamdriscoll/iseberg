@@ -18,6 +18,7 @@ public sealed partial class MainWindow
     {
         Action<SessionState> stateChanged = _ => Dispatcher.UIThread.Post(async () =>
         {
+            if (windowClosed || !Workbench.Sessions.Contains(session)) return;
             RefreshState();
             await RefreshChangedRunspaceAsync(session);
         });
@@ -26,6 +27,7 @@ public sealed partial class MainWindow
             var revision = Interlocked.Increment(ref session.DebugRevisionCounter);
             Dispatcher.UIThread.Post(async () =>
             {
+                if (windowClosed || !Workbench.Sessions.Contains(session)) return;
                 if (revision != session.DebugRevisionCounter) return;
                 session.DebugLocation = location;
                 session.DebugSnapshot = null;
@@ -147,6 +149,7 @@ public sealed partial class MainWindow
 
     private async Task RefreshDebuggerCoreAsync(SessionModel session, bool reconcile)
     {
+        if (windowClosed || !Workbench.Sessions.Contains(session)) return;
         var revision = session.DebugRevisionCounter;
         var state = session.Engine.State;
         if (state != SessionState.Ready && !session.Engine.IsDebuggerPaused) return;
@@ -165,7 +168,8 @@ public sealed partial class MainWindow
                 if (session == displayedSession) RenderDebugger();
             }
             var snapshot = state == SessionState.Debugging ? await session.Engine.InspectAsync(session.Watches, session.SelectedDebugFrame) : null;
-            if (revision != session.DebugRevisionCounter || session.Engine.State != state) return;
+            if (windowClosed || !Workbench.Sessions.Contains(session) ||
+                revision != session.DebugRevisionCounter || session.Engine.State != state) return;
             session.Breakpoints = breakpoints;
             session.DebugSnapshot = snapshot;
             if (reconcile)
