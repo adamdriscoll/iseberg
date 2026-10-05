@@ -30,6 +30,7 @@ public sealed class UserSettings
     public EditorTheme Theme { get; set; } = new();
     public List<EditorTheme> CustomThemes { get; set; } = [];
     public List<string> RecentFiles { get; set; } = [];
+    public List<DebuggerSessionSettings> DebuggerSessions { get; set; } = [];
     public static string SettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Iseberg", "settings.json");
 
@@ -64,14 +65,41 @@ public sealed class UserSettings
         if (RecentFiles.Any(string.IsNullOrWhiteSpace)) throw new InvalidDataException("A recent-file path is empty.");
         if (RecentFiles.Count > RecentFileCount) RecentFiles.RemoveRange(RecentFileCount, RecentFiles.Count - RecentFileCount);
         if (Layout is not ("Top" or "Right" or "Maximized")) Layout = "Top";
+        DebuggerSessions ??= [];
+        if (DebuggerSessions.Any(session => session is null || string.IsNullOrWhiteSpace(session.Name)) ||
+            DebuggerSessions.DistinctBy(session => session.Name).Count() != DebuggerSessions.Count)
+            throw new InvalidDataException("Saved debugger sessions must have unique names.");
+        foreach (var session in DebuggerSessions)
+        {
+            if (session.Watches is null || session.Watches.Any(string.IsNullOrWhiteSpace) || session.Breakpoints is null)
+                throw new InvalidDataException("A saved debugger configuration is invalid.");
+            foreach (var breakpoint in session.Breakpoints)
+            {
+                if (breakpoint is null) throw new InvalidDataException("A saved breakpoint is empty.");
+                try { breakpoint.Validate(); }
+                catch (Exception exception) when (exception is ArgumentException or System.Management.Automation.ParseException)
+                { throw new InvalidDataException("A saved breakpoint is invalid.", exception); }
+            }
+        }
     }
 
     public async Task SaveAsync(string? path = null)
     {
         path ??= SettingsPath;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temporary = path + ".tmp";
-        await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
-        File.Move(temporary, path, overwrite: true);
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
+}
+
+public sealed class DebuggerSessionSettings
+{
+    public string Name { get; set; } = "";
+    public List<string> Watches { get; set; } = [];
+    public List<BreakpointSpec> Breakpoints { get; set; } = [];
 }

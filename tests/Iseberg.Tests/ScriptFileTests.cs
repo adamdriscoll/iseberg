@@ -110,5 +110,36 @@ public sealed class ScriptFileTests
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public async Task DebuggerConfigurationPersistsAllBreakpointFieldsAndIndependentSessions()
+    {
+        var path = TempFile();
+        var line = new BreakpointSpec(BreakpointKind.Line, TempFile(), Line: 7, Condition: "$n -gt 2", Enabled: false);
+        var variable = new BreakpointSpec(BreakpointKind.Variable, Target: "tracked",
+            AccessMode: System.Management.Automation.VariableAccessMode.ReadWrite, Action: "Write-Host 'hit'; break");
+        try
+        {
+            var settings = new UserSettings
+            {
+                DebuggerSessions =
+                [
+                    new() { Name = "PowerShell 1", Watches = ["$n", "$obj.Child"], Breakpoints = [line, variable] },
+                    new() { Name = "PowerShell 2", Watches = ["$other"], Breakpoints = [new(BreakpointKind.Command, Target: "Get-Process")] }
+                ]
+            };
+            await settings.SaveAsync(path);
+            var loaded = await UserSettings.LoadAsync(path);
+            Assert.Equal([line, variable], loaded.DebuggerSessions[0].Breakpoints);
+            Assert.Equal(["$n", "$obj.Child"], loaded.DebuggerSessions[0].Watches);
+            Assert.Equal("$other", loaded.DebuggerSessions[1].Watches.Single());
+            var copy = loaded.Copy();
+            copy.DebuggerSessions[0].Watches.Clear();
+            Assert.Equal(2, loaded.DebuggerSessions[0].Watches.Count);
+            loaded.DebuggerSessions[0].Breakpoints.Add(line with { Line = 0 });
+            Assert.Throws<InvalidDataException>(loaded.Normalize);
+        }
+        finally { File.Delete(path); }
+    }
+
     private static string TempFile() => Path.Combine(Path.GetTempPath(), "iseberg-file-" + Guid.NewGuid().ToString("N") + ".ps1");
 }

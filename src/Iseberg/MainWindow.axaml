@@ -126,8 +126,7 @@
         </DataTemplate>
       </TabStrip.ItemTemplate>
     </TabStrip>
-    <Grid Grid.Row="3" x:Name="OuterGrid" ColumnDefinitions="*,5,290">
-      <Grid RowDefinitions="*,Auto">
+    <Grid Grid.Row="3" x:Name="OuterGrid" ColumnDefinitions="*,5,290,0,0">
       <Grid x:Name="PaneGrid" RowDefinitions="3*,5,2*" ColumnDefinitions="*">
         <Grid x:Name="ScriptPane" RowDefinitions="Auto,*,Auto" Background="White">
           <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Background="{DynamicResource ControlBrush}">
@@ -149,45 +148,6 @@
                            AutomationProperties.Name="Script editor" />
           <TextBlock Grid.Row="2" x:Name="Diagnostics" Foreground="{DynamicResource WindowTextBrush}" Background="{DynamicResource WindowBrush}" Padding="5,2" IsVisible="False" TextWrapping="Wrap" MaxHeight="45" AutomationProperties.Name="Script diagnostics" />
         </Grid>
-        <Border Grid.Row="1" x:Name="DebuggerPane" IsVisible="False" Height="235" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Background="{DynamicResource ControlBrush}">
-          <Grid RowDefinitions="Auto,*" Margin="5">
-            <DockPanel>
-              <Button DockPanel.Dock="Right" Classes="close" Tag="DebuggerPanes" Click="OnAction" AutomationProperties.Name="{local:Ui CloseDebuggerPanes}"><local:ToolbarIcon Kind="Close" Width="10" Height="10" /></Button>
-              <Button DockPanel.Dock="Right" Content="{local:Ui Refresh}" Tag="RefreshDebugger" Click="OnAction" />
-              <TextBlock Text="{local:Ui DebuggerPanes}" VerticalAlignment="Center" />
-            </DockPanel>
-            <TabControl Grid.Row="1" x:Name="DebuggerTabs">
-              <TabItem Header="{local:Ui Variables}">
-                <ListBox x:Name="VariablesList" AutomationProperties.Name="{local:Ui Variables}" />
-              </TabItem>
-              <TabItem Header="{local:Ui Watches}">
-                <Grid RowDefinitions="Auto,*">
-                  <DockPanel Margin="0,3">
-                    <Button DockPanel.Dock="Right" Content="{local:Ui RemoveWatch}" Tag="RemoveWatch" Click="OnAction" />
-                    <Button DockPanel.Dock="Right" Content="{local:Ui AddWatch}" Tag="AddWatch" Click="OnAction" />
-                    <TextBox x:Name="WatchExpression" Watermark="{local:Ui WatchExpression}" AutomationProperties.Name="{local:Ui WatchExpression}" />
-                  </DockPanel>
-                  <ListBox Grid.Row="1" x:Name="WatchesList" AutomationProperties.Name="{local:Ui Watches}" />
-                </Grid>
-              </TabItem>
-              <TabItem Header="{local:Ui CallStack}">
-                <ListBox x:Name="CallStackList" DoubleTapped="OnDebugFrameSelected" AutomationProperties.Name="{local:Ui CallStack}" />
-              </TabItem>
-              <TabItem Header="{local:Ui BreakpointsTitle}">
-                <Grid RowDefinitions="Auto,*">
-                  <WrapPanel>
-                    <Button Content="{local:Ui NewBreakpoint}" Tag="NewBreakpoint" Click="OnAction" />
-                    <Button x:Name="EditBreakpointButton" Content="{local:Ui EditBreakpoint}" Tag="EditBreakpoint" Click="OnAction" />
-                    <Button x:Name="EnableBreakpointButton" Content="{local:Ui EnableDisableBreakpoint}" Tag="EnableBreakpoint" Click="OnAction" />
-                    <Button x:Name="DeleteBreakpointButton" Content="{local:Ui DeleteBreakpoint}" Tag="DeleteBreakpoint" Click="OnAction" />
-                  </WrapPanel>
-                  <ListBox Grid.Row="1" x:Name="BreakpointsList" SelectionChanged="OnBreakpointSelected" AutomationProperties.Name="{local:Ui BreakpointsTitle}" />
-                </Grid>
-              </TabItem>
-            </TabControl>
-          </Grid>
-        </Border>
-        </Grid>
         <GridSplitter x:Name="PaneSplitter" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="{DynamicResource ControlBrush}" AutomationProperties.Name="Script and console pane divider" />
         <Grid x:Name="ConsolePane" Grid.Row="2" RowDefinitions="*,Auto" Background="#012456">
           <local:AccessibleTextEditor x:Name="ConsoleEditor"
@@ -203,6 +163,46 @@
           </Border>
         </Grid>
       </Grid>
+      <GridSplitter Grid.Column="1" x:Name="DebuggerSplitter" IsVisible="False" Width="5" HorizontalAlignment="Stretch" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Background="{DynamicResource ControlBrush}" AutomationProperties.Name="{local:Ui DebuggerPaneDivider}" />
+      <Border Grid.Column="2" x:Name="DebuggerPane" IsVisible="False" MinWidth="340" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Background="{DynamicResource ControlBrush}">
+        <Grid RowDefinitions="Auto,Auto,*" Margin="7">
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <TextBlock Text="{local:Ui DebuggerPanes}" FontWeight="Bold" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Content="{local:Ui Refresh}" Tag="RefreshDebugger" Click="OnAction" />
+            <Button Grid.Column="2" Classes="close" Tag="DebuggerPanes" Click="OnAction" AutomationProperties.Name="{local:Ui CloseDebuggerPanes}"><local:ToolbarIcon Kind="Close" Width="10" Height="10" /></Button>
+          </Grid>
+          <TextBlock Grid.Row="1" x:Name="DebuggerScope" Text="{local:Ui DebuggerEvaluationScope}" TextWrapping="Wrap" Margin="0,5" />
+          <TabControl Grid.Row="2" x:Name="DebuggerTabs">
+            <TabItem Header="{local:Ui Variables}">
+              <TreeView x:Name="VariablesList" AutomationProperties.Name="{local:Ui Variables}" />
+            </TabItem>
+            <TabItem Header="{local:Ui Watches}">
+              <Grid RowDefinitions="Auto,*">
+                <DockPanel Margin="0,3">
+                  <Button x:Name="RemoveWatchButton" DockPanel.Dock="Right" Content="{local:Ui RemoveWatch}" Tag="RemoveWatch" Click="OnAction" />
+                  <Button DockPanel.Dock="Right" Content="{local:Ui AddWatch}" Tag="AddWatch" Click="OnAction" />
+                  <TextBox x:Name="WatchExpression" Watermark="{local:Ui WatchExpression}" AutomationProperties.Name="{local:Ui WatchExpression}" />
+                </DockPanel>
+                <TreeView Grid.Row="1" x:Name="WatchesList" SelectionChanged="OnWatchSelected" AutomationProperties.Name="{local:Ui Watches}" />
+              </Grid>
+            </TabItem>
+            <TabItem Header="{local:Ui CallStack}">
+              <ListBox x:Name="CallStackList" SelectionChanged="OnDebugScopeSelected" DoubleTapped="OnDebugFrameSelected" AutomationProperties.Name="{local:Ui CallStack}" />
+            </TabItem>
+            <TabItem Header="{local:Ui BreakpointsTitle}">
+              <Grid RowDefinitions="Auto,*">
+                <WrapPanel>
+                  <Button x:Name="NewBreakpointButton" Content="{local:Ui NewBreakpoint}" Tag="NewBreakpoint" Click="OnAction" />
+                  <Button x:Name="EditBreakpointButton" Content="{local:Ui EditBreakpoint}" Tag="EditBreakpoint" Click="OnAction" />
+                  <Button x:Name="EnableBreakpointButton" Content="{local:Ui EnableDisableBreakpoint}" Tag="EnableBreakpoint" Click="OnAction" />
+                  <Button x:Name="DeleteBreakpointButton" Content="{local:Ui DeleteBreakpoint}" Tag="DeleteBreakpoint" Click="OnAction" />
+                </WrapPanel>
+                <ListBox Grid.Row="1" x:Name="BreakpointsList" SelectionChanged="OnBreakpointSelected" AutomationProperties.Name="{local:Ui BreakpointsTitle}" />
+              </Grid>
+            </TabItem>
+          </TabControl>
+        </Grid>
+      </Border>
       <GridSplitter Grid.Column="1" x:Name="CommandSplitter" Width="5" HorizontalAlignment="Stretch" Background="{DynamicResource ControlBrush}" AutomationProperties.Name="Commands pane divider" />
       <Border Grid.Column="2" x:Name="CommandsPane" Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0">
         <Grid RowDefinitions="Auto,Auto,Auto,2*,5,3*,Auto" Margin="7">

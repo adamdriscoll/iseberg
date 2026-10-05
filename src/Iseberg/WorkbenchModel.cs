@@ -130,9 +130,12 @@ public sealed class SessionModel : ObservableModel
     public DebugLocation? DebugLocation { get; set; }
     public List<string> Watches { get; } = [];
     public DebugSnapshot? DebugSnapshot { get; set; }
+    public int SelectedDebugFrame { get; set; }
+    public bool EditingBreakpoints { get; set; }
     public IReadOnlyList<DebugBreakpoint> Breakpoints { get; set; } = [];
     public bool DebuggerPaneVisible { get; set; }
     internal int DebugRevisionCounter;
+    internal SemaphoreSlim DebugRefreshGate { get; } = new(1, 1);
     public bool Evaluating { get; set; }
     public ScriptTab? SelectedFile
     {

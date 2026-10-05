@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Management.Automation;
 
 namespace Iseberg.Core;
@@ -6,6 +7,8 @@ public sealed partial class PowerShellSession
 {
     private readonly Queue<DebugWork> debugWork = new();
     private readonly Dictionary<int, BreakpointSpec> breakpointSpecs = [];
+    private readonly Dictionary<long, object> debugValues = [];
+    private long nextDebugValue;
     private bool resumeRequested;
     public bool IsDebuggerPaused
     {
@@ -15,8 +18,9 @@ public sealed partial class PowerShellSession
     private sealed record DebugWork(Action Execute, Action<Exception> Fail);
 
     // ProcessCommand must run on the suspended pipeline's DebuggerStop thread, not a second pipeline.
-    private Task<T> PausedQueryAsync<T>(Func<T> query)
+    private Task<T> PausedQueryAsync<T>(Func<T> query, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var result = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (sync)
         {
@@ -25,16 +29,51 @@ public sealed partial class PowerShellSession
                 throw new InvalidOperationException("The debugger is not paused.");
             debugWork.Enqueue(new(() =>
             {
-                try { result.TrySetResult(query()); }
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    using var registration = cancellationToken.Register(() => runspace.Debugger.StopProcessCommand());
+                    var value = query();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    result.TrySetResult(value);
+                }
+                catch (Exception) when (cancellationToken.IsCancellationRequested)
+                { result.TrySetCanceled(cancellationToken); }
                 catch (Exception exception) { result.TrySetException(exception); }
             }, exception => result.TrySetException(exception)));
             debuggerWake.Set();
         }
-        return result.Task;
+        return result.Task.WaitAsync(cancellationToken);
     }
 
-    private Task<T> BreakpointQueryAsync<T>(Func<T> query) =>
-        State == SessionState.Debugging ? PausedQueryAsync(query) : QueryAsync(_ => query());
+    private async Task<T> BreakpointQueryAsync<T>(Func<T> query, bool mutation = true)
+    {
+        if (mutation) await PauseForBreakpointEditAsync();
+        return State == SessionState.Debugging ? await PausedQueryAsync(query) : await QueryAsync(_ => query(), waitForGate: mutation);
+    }
+
+    public async Task PauseForBreakpointEditAsync(CancellationToken cancellationToken = default)
+    {
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Changed(SessionState state)
+        {
+            if (state is SessionState.Debugging or SessionState.Ready) ready.TrySetResult();
+            else if (state == SessionState.Disposed) ready.TrySetException(new ObjectDisposedException(nameof(PowerShellSession)));
+        }
+        lock (sync)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (State == SessionState.Ready || IsDebuggerPaused) return;
+            if (State != SessionState.Running || stopRequested)
+                throw new InvalidOperationException("Wait for execution to stop before editing breakpoints.");
+            StateChanged += Changed;
+            try { BreakAll(); }
+            catch { StateChanged -= Changed; throw; }
+        }
+        try { await ready.Task.WaitAsync(cancellationToken); }
+        finally { StateChanged -= Changed; }
+    }
 
     public void BreakAll()
     {
@@ -68,6 +107,11 @@ public sealed partial class PowerShellSession
     {
         var command = new PSCommand();
         command.AddScript(script, useLocalScope: false);
+        return Inspect(command);
+    }
+
+    private PSObject[] Inspect(PSCommand command)
+    {
         using var output = new PSDataCollection<PSObject>();
         runspace.Debugger.ProcessCommand(command, output);
         var errors = output.Where(value => value.BaseObject is ErrorRecord).Select(value => value.ToString()).ToArray();
@@ -75,24 +119,40 @@ public sealed partial class PowerShellSession
         return output.ToArray();
     }
 
-    public Task<DebugSnapshot> InspectAsync(IEnumerable<string> watches)
+    public Task<DebugSnapshot> InspectAsync(IEnumerable<string> watches, int frameIndex = 0)
     {
         var expressions = watches.ToArray();
         return PausedQueryAsync(() =>
         {
-            var variables = Inspect("Microsoft.PowerShell.Utility\\Get-Variable").Select(value => value.BaseObject).OfType<PSVariable>()
+            var frames = runspace.Debugger.GetCallStack().ToArray();
+            if (frameIndex < 0 || frameIndex > 0 && frameIndex >= frames.Length)
+                throw new InvalidOperationException("The selected call-stack frame no longer exists.");
+            var scope = frames.Take(frameIndex).Count(frame => frame.InvocationInfo.InvocationName != ".");
+            var frameVariables = frameIndex == 0
+                ? Inspect("Microsoft.PowerShell.Utility\\Get-Variable").Select(value => value.BaseObject).OfType<PSVariable>()
+                : Inspect($"Microsoft.PowerShell.Utility\\Get-Variable -Scope {scope}")
+                    .Select(value => value.BaseObject).OfType<PSVariable>();
+            var scopedVariables = frameVariables.ToArray();
+            var frameLocals = frames.Length > 0 ? frames[frameIndex].GetFrameVariables() : new Dictionary<string, PSVariable>();
+            // Call-stack depth is not scope depth across dotted/module boundaries.
+            if (frameIndex > 0 && (!frameLocals.TryGetValue("MyInvocation", out var expected) ||
+                !ReferenceEquals(expected.Value, scopedVariables.FirstOrDefault(variable => variable.Name.Equals("MyInvocation", StringComparison.OrdinalIgnoreCase))?.Value)))
+                throw new InvalidOperationException("PowerShell does not expose the selected frame's variable scope. Select another frame.");
+            debugValues.Clear();
+            frameVariables = scopedVariables.Concat(frameLocals.Values).DistinctBy(variable => variable.Name, StringComparer.OrdinalIgnoreCase);
+            var variables = frameVariables
                 .OrderBy(variable => variable.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(variable => DescribeValue("$" + variable.Name, variable.Value)).ToArray();
-            var stack = runspace.Debugger.GetCallStack().Select(frame =>
-                new DebugFrame(frame.FunctionName, frame.ScriptName, frame.ScriptLineNumber)).ToArray();
+            var stack = frames.Select((frame, index) =>
+                new DebugFrame(frame.FunctionName, frame.ScriptName, frame.ScriptLineNumber, index)).ToArray();
             var values = expressions.Select(expression =>
             {
                 try
                 {
                     var results = Inspect(expression);
                     return results.Length == 0 ? DescribeValue(expression, null) :
-                        results.Length == 1 ? DescribeValue(expression, results[0].BaseObject) :
-                        new DebugValue(expression, string.Join(", ", results.Select(value => value.ToString())), "Object[]");
+                        results.Length == 1 ? DescribeValue(expression, results[0]) :
+                        DescribeValue(expression, results);
                 }
                 catch (Exception exception) when (exception is RuntimeException or InvalidOperationException)
                 {
@@ -103,22 +163,92 @@ public sealed partial class PowerShellSession
         });
     }
 
-    private static DebugValue DescribeValue(string name, object? value)
+    private DebugValue DescribeValue(string name, object? value)
     {
         if (value is null) return new(name, "$null", "");
-        try { return new(name, value.ToString() ?? "", value.GetType().Name); }
-        catch (Exception exception) { return new(name, "", value.GetType().Name, exception.Message); }
+        var wrapped = PSObject.AsPSObject(value);
+        var underlying = wrapped.BaseObject;
+        var type = underlying.GetType();
+        var expandable = underlying is IList or IDictionary ||
+            !(type.IsPrimitive || type.IsEnum || underlying is string or decimal or DateTime or DateTimeOffset or TimeSpan or Guid) &&
+            wrapped.Properties.Any();
+        long? reference = null;
+        if (expandable)
+        {
+            reference = ++nextDebugValue;
+            debugValues.Add(reference.Value, value);
+        }
+        try
+        {
+            var preview = value.ToString() ?? "";
+            if (preview.Length > 512) preview = preview[..512] + "...";
+            return new(name, preview, type.Name, Reference: reference);
+        }
+        catch (Exception exception) { return new(name, "", type.Name, exception.Message, reference); }
     }
+
+    public Task<DebugChildren> GetValueChildrenAsync(long reference, int offset = 0, int count = 100) =>
+        PausedQueryAsync(() =>
+        {
+            if (offset < 0 || count is < 1 or > 100)
+                throw new InvalidOperationException("Invalid debugger object page.");
+            if (!debugValues.TryGetValue(reference, out var value))
+                throw new InvalidOperationException("This debugger value has expired. Refresh the inspector.");
+            var wrapped = PSObject.AsPSObject(value);
+            IEnumerable<(string Name, Func<object?> Read)> Members()
+            {
+                if (wrapped.BaseObject is IDictionary dictionary)
+                {
+                    foreach (var key in dictionary.Keys)
+                    {
+                        var captured = key;
+                        yield return ($"[{key}]", () => dictionary[captured]);
+                    }
+                }
+                else if (wrapped.BaseObject is IList list)
+                {
+                    for (var index = 0; index < list.Count; index++)
+                    {
+                        var captured = index;
+                        yield return ($"[{index}]", () => list[captured]);
+                    }
+                }
+                else
+                    foreach (var property in wrapped.Properties.Where(property => property.IsGettable))
+                        yield return (property.Name, () => property.Value);
+            }
+            var page = Members().Skip(offset).Take(count + 1).ToArray();
+            var children = page.Take(count).Select(member =>
+            {
+                try { return DescribeValue(member.Name, member.Read()); }
+                catch (Exception exception) { return new DebugValue(member.Name, "", "", exception.Message); }
+            }).ToArray();
+            return new DebugChildren(children, page.Length > count ? offset + count : null);
+        });
+
+    private Task<CompletionSet> CompletePausedAsync(string text, int cursor, CancellationToken cancellationToken) =>
+        PausedQueryAsync(() =>
+        {
+            var command = new PSCommand().AddCommand("TabExpansion2").AddArgument(text).AddArgument(cursor);
+            var result = Inspect(command).Select(value => value.BaseObject).OfType<CommandCompletion>().FirstOrDefault()
+                ?? throw new InvalidOperationException("PowerShell completion did not return a completion result.");
+            return new CompletionSet(result.ReplacementIndex, result.ReplacementLength, result.CompletionMatches.ToArray());
+        }, cancellationToken);
 
     public Task<IReadOnlyList<DebugBreakpoint>> GetBreakpointsAsync() =>
         BreakpointQueryAsync<IReadOnlyList<DebugBreakpoint>>(() => runspace.Debugger.GetBreakpoints()
-            .Select(DescribeBreakpoint).OrderBy(breakpoint => breakpoint.Id).ToArray());
+            .Select(DescribeBreakpoint).OrderBy(breakpoint => breakpoint.Id).ToArray(), mutation: false);
 
-    public Task<DebugBreakpoint> AddBreakpointAsync(BreakpointSpec spec) =>
-        BreakpointQueryAsync(() => DescribeBreakpoint(CreateBreakpoint(spec)));
+    public Task<DebugBreakpoint> AddBreakpointAsync(BreakpointSpec spec)
+    {
+        spec.Validate();
+        return BreakpointQueryAsync(() => DescribeBreakpoint(CreateBreakpoint(spec)));
+    }
 
-    public Task<DebugBreakpoint> UpdateBreakpointAsync(int id, BreakpointSpec spec) =>
-        BreakpointQueryAsync(() =>
+    public Task<DebugBreakpoint> UpdateBreakpointAsync(int id, BreakpointSpec spec)
+    {
+        spec.Validate();
+        return BreakpointQueryAsync(() =>
         {
             var previous = FindBreakpoint(id);
             var replacement = CreateBreakpoint(spec);
@@ -126,6 +256,7 @@ public sealed partial class PowerShellSession
             breakpointSpecs.Remove(id);
             return DescribeBreakpoint(replacement);
         });
+    }
 
     public Task SetBreakpointEnabledAsync(int id, bool enabled) => BreakpointQueryAsync(() =>
     {

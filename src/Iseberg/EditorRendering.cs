@@ -122,27 +122,23 @@ public sealed class ConsoleColorizer(Func<SessionModel?> session, Func<EditorThe
     }
 }
 
-public sealed class ScriptAdornments(Func<ScriptTab?> file, Func<DebugLocation?> debug) : IBackgroundRenderer
+public sealed class ScriptAdornments(Func<ScriptTab?> file, Func<DebugLocation?> debug, Func<EditorTheme> theme) : IBackgroundRenderer
 {
     public KnownLayer Layer => KnownLayer.Background;
     public void Draw(TextView textView, DrawingContext context)
     {
-        if (file() is not { } current || !textView.VisualLinesValid) return;
+        if (file() is not { } current || !textView.VisualLinesValid || DesktopTheme.HighContrast) return;
         var breakpoints = current.LineBreakpoints.ToDictionary(spec => spec.Line);
         foreach (var line in textView.VisualLines)
         {
             var number = line.FirstDocumentLine.LineNumber;
-            var isDebug = debug() is { } location && location.Line == number &&
-                string.Equals(location.ScriptPath, current.File.Path, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
-            var isBreakpoint = current.File.Breakpoints.Contains(number);
-            var enabled = !breakpoints.TryGetValue(number, out var spec) || spec.Enabled;
+            var isDebug = BreakpointVisuals.IsPausedLine(current, debug(), number);
+            var isBreakpoint = breakpoints.TryGetValue(number, out var spec) && spec.Enabled;
             if (!isDebug && !isBreakpoint) continue;
             var y = line.VisualTop - textView.ScrollOffset.Y;
-            context.DrawRectangle(DesktopTheme.HighContrast ? DesktopTheme.Brush("ControlBrush") : isDebug ? new SolidColorBrush(Color.Parse("#FFF4B0")) : new SolidColorBrush(Color.Parse("#FADADA")),
+            var marker = BreakpointVisuals.MarkerColor(theme(), isDebug);
+            context.DrawRectangle(new SolidColorBrush(Color.FromArgb(12, marker.R, marker.G, marker.B)),
                 null, new Rect(0, y, textView.Bounds.Width, line.Height));
-            var marker = DesktopTheme.HighContrast ? DesktopTheme.Brush("ControlTextBrush") : isDebug ? Brushes.Goldenrod : Brushes.DarkRed;
-            context.DrawEllipse(isDebug || enabled ? marker : null,
-                enabled ? null : new Pen(marker, 1), new Point(5, y + line.Height / 2), 4, 4);
         }
     }
 }
@@ -154,6 +150,10 @@ public sealed class PowerShellCompletion(CompletionResult result) : ICompletionD
     public object Content => result.ListItemText;
     public object Description => result.ToolTip;
     public double Priority => 0;
-    public void Complete(TextArea textArea, ISegment completionSegment, EventArgs insertionRequestEventArgs) =>
-        textArea.Document.Replace(completionSegment, result.CompletionText);
+    public void Complete(TextArea textArea, ISegment completionSegment, EventArgs insertionRequestEventArgs)
+    {
+        if (textArea.ReadOnlySectionProvider.CanInsert(completionSegment.Offset) &&
+            textArea.ReadOnlySectionProvider.GetDeletableSegments(completionSegment).Sum(segment => segment.Length) == completionSegment.Length)
+            textArea.Document.Replace(completionSegment, result.CompletionText);
+    }
 }

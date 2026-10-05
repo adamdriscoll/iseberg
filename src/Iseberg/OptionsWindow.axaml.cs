@@ -296,7 +296,7 @@ public sealed partial class OptionsWindow : Window
         {
             RecentFiles = draft.RecentFiles, CustomThemes = draft.CustomThemes,
             LoadProfiles = draft.LoadProfiles, ShowCommands = draft.ShowCommands, WordWrap = draft.WordWrap, Zoom = draft.Zoom,
-            HelpView = draft.HelpView.Copy()
+            HelpView = draft.HelpView.Copy(), DebuggerSessions = draft.DebuggerSessions
         };
         draft = defaults;
         colorValid = true;

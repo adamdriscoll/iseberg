@@ -6,6 +6,7 @@
   <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
   <data name="Options" xml:space="preserve"><value>Options</value></data>
   <data name="DebuggerPanes" xml:space="preserve"><value>Debugger Panes</value></data>
+  <data name="DebuggerPaneDivider" xml:space="preserve"><value>Debugger pane divider</value></data>
   <data name="CloseDebuggerPanes" xml:space="preserve"><value>Close debugger panes</value></data>
   <data name="Variables" xml:space="preserve"><value>Variables</value></data>
   <data name="Watches" xml:space="preserve"><value>Watch</value></data>
@@ -183,6 +184,8 @@
   <data name="ExecutionPolicy" xml:space="preserve"><value>Enable Local Scripts (Process Only)...</value></data>
   <data name="OptionsMenu" xml:space="preserve"><value>_Options...</value></data>
   <data name="Breakpoint" xml:space="preserve"><value>Toggle _Breakpoint</value></data>
+  <data name="BreakpointGutter" xml:space="preserve"><value>Breakpoint gutter</value></data>
+  <data name="BreakpointGutterHint" xml:space="preserve"><value>Click beside a line to toggle its breakpoint.</value></data>
   <data name="RemoveBreakpoints" xml:space="preserve"><value>_Remove All Breakpoints</value></data>
   <data name="StepInto" xml:space="preserve"><value>Step _Into</value></data>
   <data name="StepOver" xml:space="preserve"><value>Step _Over</value></data>
@@ -260,4 +263,10 @@
   <data name="SessionClosed" xml:space="preserve"><value>Session closed</value></data>
   <data name="Caret" xml:space="preserve"><value>Ln {0}  Col {1}</value></data>
   <data name="DebugStatus" xml:space="preserve"><value>Breakpoint at line {0}. F5: Continue  F10: Step over  F11: Step into</value></data>
+  <data name="DebuggerEvaluationScope" xml:space="preserve"><value>Evaluation and watches: stopped frame</value></data>
+  <data name="DebuggerInspectionScope" xml:space="preserve"><value>Variables: {0}. Evaluation and watches: stopped frame</value></data>
+  <data name="ExpandDebuggerValue" xml:space="preserve"><value>Expand to inspect</value></data>
+  <data name="LoadingDebuggerValue" xml:space="preserve"><value>Loading...</value></data>
+  <data name="MoreDebuggerValues" xml:space="preserve"><value>Load more...</value></data>
+  <data name="PauseForBreakpointEdit" xml:space="preserve"><value>Waiting for the next PowerShell statement to pause before editing breakpoints...</value></data>
 </root>
