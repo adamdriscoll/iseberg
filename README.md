@@ -2,6 +2,8 @@
 
 A cross-platform desktop workbench inspired by PowerShell ISE, built with Avalonia, AvaloniaEdit, and PowerShell 7.6.6.
 
+![Iseberg showing a syntax-highlighted PowerShell script, console output, and the Commands pane.](docs/images/iseberg.png)
+
 **This is an initial working implementation, not a complete or pixel-perfect replacement for Microsoft PowerShell ISE.** See [the parity inventory](docs/parity.md) for implemented behavior and remaining gaps.
 
 ## Run
