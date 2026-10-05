@@ -172,10 +172,12 @@ public sealed class SessionModel : ObservableModel
         var batch = new List<OutputEntry>();
         while (batch.Count < 2000 && output.TryDequeue(out var entry)) batch.Add(entry);
         if (batch.Count > 0) Console.AppendBatch(batch);
-        if ((Engine.State == SessionState.Ready || Engine.IsDebuggerPaused) && !Evaluating && output.IsEmpty)
+        if ((Engine.State == SessionState.Ready || Engine.IsDebuggerPaused || Engine.IsNestedPromptActive) && !Evaluating && output.IsEmpty)
         {
+            changed |= Console.CompleteOutput();
             changed |= !Console.HasPrompt;
-            Console.ShowPrompt(Engine.State == SessionState.Debugging ? Engine.DebugPrompt : Engine.Prompt);
+            Console.ShowPrompt(Engine.IsNestedPromptActive ? Engine.NestedPrompt :
+                Engine.State == SessionState.Debugging ? Engine.DebugPrompt : Engine.Prompt);
         }
         return changed;
     }

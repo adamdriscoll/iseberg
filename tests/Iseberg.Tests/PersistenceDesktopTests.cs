@@ -147,6 +147,13 @@ public sealed class PersistenceDesktopTests
             restored.Engine.Output += entries.Add;
             await restored.Engine.ExecuteAsync("Test-Path variable:privateRestartValue");
             Assert.Contains(entries, entry => entry.Text.Contains("False"));
+            var input = restored.Engine.ExecuteAsync("Read-Host 'restored input'");
+            await WaitFor(() => second.OwnedWindows.Any());
+            var dialog = Assert.IsType<HostInputWindow>(Assert.Single(second.OwnedWindows));
+            dialog.FindControl<TextBox>("HostInput")!.Text = "restored response";
+            dialog.FindControl<Button>("HostInputSubmit")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await input.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Contains(entries, entry => entry.Text.Contains("restored response"));
             Assert.Equal("Untitled7.ps1", second.Workbench.Sessions[0].SelectedFile!.File.Name);
             Assert.Equal(1252, second.Workbench.Sessions[0].SelectedFile!.File.EncodingChoice.CodePage);
             Assert.False(second.Workbench.Sessions[0].SelectedFile!.File.IsDirty);

@@ -92,6 +92,9 @@ public sealed class ConsoleColorizer(Func<SessionModel?> session, Func<EditorThe
             };
             ChangeLinePart(Math.Max(line.Offset, span.Start), Math.Min(line.EndOffset, span.End),
                 element => element.TextRunProperties.SetForegroundBrush(new SolidColorBrush(Color.Parse(theme().Colors[key]))));
+            ApplyStyle(Math.Max(line.Offset, span.Start), Math.Min(line.EndOffset, span.End), span.Style, theme().Colors[key]);
+            if (span.CodeStart > span.Start && span.PromptStyles is { } promptStyles)
+                ApplyPromptStyles(line, span.Start, promptStyles);
             if (span.Analysis is null) continue;
             Token? previous = null;
             foreach (var token in span.Analysis.Tokens)
@@ -106,7 +109,9 @@ public sealed class ConsoleColorizer(Func<SessionModel?> session, Func<EditorThe
                     element => element.TextRunProperties.SetForegroundBrush(brush));
             }
         }
-        if (!current.Console.HasPrompt || line.EndOffset <= current.Console.InputStart) return;
+        if (!current.Console.HasPrompt) return;
+        ApplyPromptStyles(line, current.Console.TranscriptEnd, current.Console.PromptParts);
+        if (line.EndOffset <= current.Console.InputStart) return;
         var analysis = current.Console.InputAnalysis;
         Token? prior = null;
         foreach (var token in analysis.Tokens)
@@ -119,6 +124,36 @@ public sealed class ConsoleColorizer(Func<SessionModel?> session, Func<EditorThe
                 ChangeLinePart(Math.Max(line.Offset, start), Math.Min(line.EndOffset, end),
                     element => element.TextRunProperties.SetForegroundBrush(brush));
         }
+    }
+
+    private void ApplyPromptStyles(DocumentLine line, int offset, IReadOnlyList<OutputEntry> parts)
+    {
+        foreach (var part in parts)
+        {
+            var end = offset + part.Text.Length;
+            if (offset < line.EndOffset && end > line.Offset)
+                ApplyStyle(Math.Max(line.Offset, offset), Math.Min(line.EndOffset, end), part.Style);
+            offset = end;
+        }
+    }
+
+    private void ApplyStyle(int start, int end, OutputStyle? style, string? defaultForeground = null)
+    {
+        if (style is null || start >= end) return;
+        ChangeLinePart(start, end, element =>
+        {
+            var fg = style.Foreground;
+            var bg = style.Background;
+            if (style.Inverse)
+                (fg, bg) = (bg ?? theme().Colors["Console.TextBackground"], fg ?? defaultForeground ?? theme().Colors["Console.Foreground"]);
+            if (fg is { } foreground)
+                element.TextRunProperties.SetForegroundBrush(new SolidColorBrush(Color.Parse(foreground)));
+            if (bg is { } background)
+                element.TextRunProperties.SetBackgroundBrush(new SolidColorBrush(Color.Parse(background)));
+            if (style.Bold) element.TextRunProperties.SetTypeface(new Typeface(element.TextRunProperties.Typeface.FontFamily,
+                element.TextRunProperties.Typeface.Style, FontWeight.Bold));
+            if (style.Underline) element.TextRunProperties.SetTextDecorations(TextDecorations.Underline);
+        });
     }
 }
 

@@ -17,6 +17,9 @@ public sealed class ShowCommandCommand : PSCmdlet
     public SwitchParameter NoCommonParameter { get; set; }
 
     [Parameter]
+    public SwitchParameter ErrorPopup { get; set; }
+
+    [Parameter]
     [ValidateRange(300, int.MaxValue)]
     public int Width { get; set; } = 360;
 
@@ -63,6 +66,20 @@ public sealed class ShowCommandCommand : PSCmdlet
         if (script is null) return;
         if (PassThru)
             WriteObject(script);
+        else if (ErrorPopup)
+        {
+            using var shell = PowerShell.Create(RunspaceMode.CurrentRunspace);
+            shell.AddScript(script, useLocalScope: false);
+            var output = new List<PSObject>();
+            ErrorRecord? terminating = null;
+            try { shell.Invoke<PSObject>(null, output); }
+            catch (RuntimeException exception) when (exception is not PipelineStoppedException)
+            { terminating = exception.ErrorRecord; }
+            foreach (var entry in output) WriteObject(entry);
+            var errors = shell.Streams.Error.ToList();
+            if (terminating is not null && !errors.Contains(terminating)) errors.Add(terminating);
+            if (errors.Count > 0) host.ShowCommandError(string.Join(Environment.NewLine, errors.Select(error => error.ToString())));
+        }
         else
             foreach (var entry in InvokeCommand.InvokeScript(false, ScriptBlock.Create(script), null))
                 WriteObject(entry);
