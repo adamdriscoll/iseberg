@@ -161,29 +161,49 @@ public sealed class RemotingTests
     [Fact]
     public async Task FailedRemoteSaveKeepsDirtyTextAndNewFilesReceiveRemoteIdentity()
     {
+        static void Progress(string stage)
+        {
+            Directory.CreateDirectory("TestResults");
+            File.AppendAllText(Path.Combine("TestResults", "remote-save-progress.log"),
+                $"[DEBUG-ci-remote-save] {DateTime.UtcNow:O} {stage}{Environment.NewLine}");
+        }
+        Progress("starting server");
         await using var server = await RemoteServer.StartAsync();
+        Progress("initializing session");
         await using var session = new PowerShellSession();
         await session.InitializeAsync();
+        Progress("connecting");
         await session.ConnectAsync(server.Connection);
+        Progress("connected");
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + "-new-remote.ps1");
         var file = new ScriptFile("Untitled.ps1") { Text = "'new-remote-marker'\n" };
         try
         {
+            Progress("attempting invalid save");
             await Assert.ThrowsAsync<RemoteException>(() => session.SaveRemoteFileAsync(file, Path.Combine(path, "missing", "script.ps1")));
+            Progress("invalid save reported");
             Assert.True(file.IsDirty);
             Assert.False(file.IsRemote);
             await session.SaveRemoteFileAsync(file, path);
+            Progress("valid save completed");
             Assert.True(file.IsRemote);
             Assert.Equal(session.RunspaceId, file.RemoteRunspaceId);
             Assert.False(file.IsDirty);
             file.Text = "'changed'";
             await session.ExitRemoteSessionAsync();
+            Progress("exited remote session");
             await session.ConnectAsync(server.Connection);
+            Progress("reconnected");
             await Assert.ThrowsAsync<InvalidOperationException>(() => session.SaveRemoteFileAsync(file));
             Assert.True(file.IsDirty);
             Assert.Equal("'new-remote-marker'\n", await File.ReadAllTextAsync(path));
+            Progress("assertions completed");
         }
-        finally { File.Delete(path); }
+        finally
+        {
+            File.Delete(path);
+            Progress("beginning automatic disposal");
+        }
     }
 
     [Fact]
