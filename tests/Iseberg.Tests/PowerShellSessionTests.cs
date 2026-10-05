@@ -10,6 +10,19 @@ namespace Iseberg.Tests;
 public sealed class PowerShellSessionTests
 {
     [Fact]
+    public async Task AllUsersProfilesUseTheEngineInstallationDirectory()
+    {
+        await using var session = new PowerShellSession();
+        var output = Capture(session);
+        await session.InitializeAsync();
+        await session.ExecuteAsync("$PROFILE.AllUsersCurrentHost; $PROFILE.AllUsersAllHosts");
+        var engineHome = Path.GetDirectoryName(typeof(PSObject).Assembly.Location)!;
+        Assert.Contains(Path.Combine(engineHome, "Iseberg_profile.ps1"), Text(output));
+        Assert.Contains(Path.Combine(engineHome, "profile.ps1"), Text(output));
+        Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error);
+    }
+
+    [Fact]
     public async Task ExecutionBeforeInitializationDoesNotChangeReadiness()
     {
         await using var session = new PowerShellSession();
