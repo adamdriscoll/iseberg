@@ -314,9 +314,22 @@ public sealed class DebuggerTests
     {
         await using var fixture = await DebugScript.CreateAsync("Get-Command Get-Process\n");
         await fixture.Session.AddBreakpointAsync(new(BreakpointKind.Command, Target: "Get-Command"));
-        var commands = await fixture.Session.GetCommandsAsync().WaitAsync(TimeSpan.FromSeconds(2));
-        Assert.Contains(commands, command => command.Name == "Get-Process");
-        Assert.Equal(SessionState.Ready, fixture.Session.State);
+        var unexpectedPause = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnDebuggerStopped(DebugLocation? location)
+        {
+            if (location is not null) unexpectedPause.TrySetResult();
+        }
+        fixture.Session.DebuggerStopped += OnDebuggerStopped;
+        try
+        {
+            var discovery = fixture.Session.GetCommandsAsync();
+            await Task.WhenAny(discovery, unexpectedPause.Task).WaitAsync(TestTimeouts.CommandDiscovery);
+            Assert.False(unexpectedPause.Task.IsCompleted, "Host command discovery must not trigger a debugger pause.");
+            var commands = await discovery;
+            Assert.Contains(commands, command => command.Name == "Get-Process");
+            Assert.Equal(SessionState.Ready, fixture.Session.State);
+        }
+        finally { fixture.Session.DebuggerStopped -= OnDebuggerStopped; }
         var execution = fixture.Run();
         await fixture.Pause();
         Assert.True(fixture.Session.IsDebuggerPaused);
