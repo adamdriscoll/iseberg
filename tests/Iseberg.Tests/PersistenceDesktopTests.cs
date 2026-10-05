@@ -85,7 +85,8 @@ public sealed class PersistenceDesktopTests
             Layout(window);
             await WaitFor(() => window.OwnedWindows.Any());
             ClickChoice(window, "Recover");
-            await WaitFor(() => window.Workbench.SelectedSession?.Files.Count == 2 && !window.OwnedWindows.Any());
+            await WaitFor(() => window.Workbench.SelectedSession?.Files.Count == 2 &&
+                !window.OwnedWindows.Any() && !File.Exists(recoveryPath));
             var session = window.Workbench.SelectedSession!;
             var recovered = session.SelectedFile!;
             Assert.Equal("PowerShell 3", session.Name);
