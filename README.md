@@ -60,7 +60,13 @@ Ctrl+J opens a searchable catalog with descriptions, author information, and cod
 
 **Tools > Create Snippet** saves selected script text as a custom snippet. **Import Snippets** reads standard ISE `.snippets.ps1xml` files, including title, description, author, `CaretOffset`, and `Indent`; **Export Snippets** writes the custom catalog in that format. Imports are validated before persistence, duplicate custom entries are removed, and malformed files are reported instead of silently skipped. Custom files are discovered recursively in `Iseberg/Snippets` under local application data. On Windows, the catalog also reads the user's `Documents/WindowsPowerShell/Snippets` folder without modifying those files. Disabling **Use default snippets** hides only built-ins, not custom snippets.
 
-Workflow and classic DSC entries are explicitly labeled as Windows PowerShell 5.1 templates. They are available for authoring legacy scripts, but this PowerShell 7 host does not add support for executing legacy workflow/configuration syntax. The catalog does not implement `$psISE` or the ISE snippet-management cmdlets.
+Workflow and classic DSC entries are explicitly labeled as Windows PowerShell 5.1 templates. They are available for authoring legacy scripts, but this PowerShell 7 host does not add support for executing legacy workflow/configuration syntax.
+
+### ISE scripting and Add-ons
+
+Local PowerShell tabs expose a supported `$psISE` subset for live script-file/editor operations, tab selection, and per-tab custom Add-ons menus. Script-block menu actions and shortcuts run in their owning PowerShell session, including closure bindings, and participate in normal execution/debugging/Stop behavior. `New-IseSnippet`, `Get-IseSnippet`, and `Import-IseSnippet` provide snippet-management compatibility; cmdlet imports are session-only and appear in that tab's Ctrl+J picker.
+
+See [ISE scripting compatibility](docs/ise-compatibility.md) for member signatures, profile/menu examples, snippet workflows, and explicit unsupported boundaries. This is not binary ISE compatibility: WPF tools are unsupported on **all platforms, including Windows**, and cannot run natively on Linux/macOS. The PowerShell 7/Avalonia architecture is unchanged.
 
 ### Execution and profiles
 

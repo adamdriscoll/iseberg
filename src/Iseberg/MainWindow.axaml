@@ -90,7 +90,7 @@
         <MenuItem Header="_Continue" InputGesture="F5" Tag="Continue" Click="OnAction" />
         <MenuItem Header="_Stop Debugger" InputGesture="Shift+F5" Tag="Stop" Click="OnAction" />
       </MenuItem>
-      <MenuItem Header="_Add-ons">
+      <MenuItem x:Name="AddonsMenu" Header="_Add-ons">
         <MenuItem Header="Show _Commands" Tag="Commands" Click="OnAction" />
       </MenuItem>
       <MenuItem Header="_Help">

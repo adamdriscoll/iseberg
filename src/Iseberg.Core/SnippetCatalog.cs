@@ -7,6 +7,8 @@ namespace Iseberg.Core;
 public sealed record PowerShellSnippet(string Title, string Description, string Author, string Code,
     int CaretOffset = -1, bool Indent = true, bool IsBuiltIn = false, string Compatibility = "")
 {
+    public string DisplayTitle => Title;
+    public string Text => Code;
     public override string ToString() => Title;
 
     public (string Text, int Caret) Expand(string indentation, string newLine)
@@ -237,7 +239,7 @@ public static class SnippetCatalog
         return xml.ToString();
     }
 
-    public static async Task SaveAsync(string path, IEnumerable<PowerShellSnippet> snippets)
+    public static async Task SaveAsync(string path, IEnumerable<PowerShellSnippet> snippets, bool overwrite = true)
     {
         var xml = Serialize(snippets);
         var fullPath = Path.GetFullPath(path);
@@ -247,16 +249,18 @@ public static class SnippetCatalog
         {
             await File.WriteAllTextAsync(temporary, xml, new UTF8Encoding(false));
             if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            File.Move(temporary, fullPath, overwrite: true);
+            File.Move(temporary, fullPath, overwrite);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    public static async Task<SnippetLoadResult> LoadAsync(IEnumerable<string>? directories = null)
-    {
-        directories ??= OperatingSystem.IsWindows()
+    public static IReadOnlyList<string> DefaultDirectories => OperatingSystem.IsWindows()
             ? new[] { UserDirectory, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "WindowsPowerShell", "Snippets") }
             : new[] { UserDirectory };
+
+    public static async Task<SnippetLoadResult> LoadAsync(IEnumerable<string>? directories = null)
+    {
+        directories ??= DefaultDirectories;
         var snippets = new List<PowerShellSnippet>();
         var errors = new List<string>();
         foreach (var directory in directories)
