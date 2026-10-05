@@ -31,6 +31,7 @@ public sealed class UserSettings
     public List<EditorTheme> CustomThemes { get; set; } = [];
     public List<string> RecentFiles { get; set; } = [];
     public List<DebuggerSessionSettings> DebuggerSessions { get; set; } = [];
+    public WorkbenchGeometry Geometry { get; set; } = new();
     public static string SettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Iseberg", "settings.json");
 
@@ -58,6 +59,8 @@ public sealed class UserSettings
         Theme.Normalize();
         HelpView ??= new();
         HelpView.Normalize();
+        Geometry ??= new();
+        Geometry.Normalize();
         CustomThemes ??= [];
         if (CustomThemes.Any(theme => theme is null)) throw new InvalidDataException("A saved theme is empty.");
         foreach (var theme in CustomThemes) theme.Normalize();

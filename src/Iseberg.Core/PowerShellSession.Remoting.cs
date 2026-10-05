@@ -172,7 +172,9 @@ public sealed partial class PowerShellSession
             throw new InvalidOperationException("This document belongs to another remote connection. Reconnect and reopen it before saving or running it.");
     }
 
-    public Task<ScriptFile> OpenRemoteFileAsync(string path)
+    public Task<ScriptFile> OpenRemoteFileAsync(string path) => OpenRemoteFileAsync(path, null);
+
+    public Task<ScriptFile> OpenRemoteFileAsync(string path, ScriptEncoding? choice = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         if (!IsRemote) throw new InvalidOperationException("Connect to a remote session before opening remote files.");
@@ -190,11 +192,18 @@ public sealed partial class PowerShellSession
             if (RunspaceId != id) throw new InvalidOperationException("The remote connection changed while opening this file.");
             var value = values.Single();
             return ScriptFile.FromRemoteBytes(value.Properties["Path"].Value.ToString()!,
-                Convert.FromBase64String(value.Properties["Content"].Value.ToString()!), id, computer);
+                Convert.FromBase64String(value.Properties["Content"].Value.ToString()!), id, computer, choice);
         }, id);
     }
 
-    public async Task SaveRemoteFileAsync(ScriptFile file, string? path = null)
+    public Task SaveRemoteFileAsync(ScriptFile file, string? path = null) =>
+        SaveRemoteFileCoreAsync(file, path, file.SavedVersion, useSavedVersion: true);
+
+    // Explicit consent: null requires absence; a hash authorizes only that server-side content.
+    public Task SaveRemoteFileAsync(ScriptFile file, string? path, string? expectedVersion) =>
+        SaveRemoteFileCoreAsync(file, path, expectedVersion, useSavedVersion: false);
+
+    private async Task SaveRemoteFileCoreAsync(ScriptFile file, string? path, string? expectedVersion, bool useSavedVersion)
     {
         if (file.IsRemote) EnsureRemoteFile(file);
         else if (!IsRemote || file.Path is not null)
@@ -203,25 +212,67 @@ public sealed partial class PowerShellSession
         var id = RunspaceId;
         var computer = RemoteComputerName!;
         var snapshot = file.Text;
+        var snapshotEncoding = file.EncodingChoice;
+        var bytes = ScriptFile.Encode(snapshot, snapshotEncoding);
         var command = new PSCommand().AddScript("""
-            param($path, $content)
+            param($path, $content, $expectedVersion, $originalPath, $useSavedVersion)
             $ErrorActionPreference = 'Stop'
             $provider = $null
             $drive = $null
             $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path, [ref]$provider, [ref]$drive)
             if ($provider.Name -ne 'FileSystem') { throw 'Select a filesystem file.' }
+            if ($useSavedVersion) {
+                $samePath = $false
+                if ($originalPath) {
+                    $originalFull = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($originalPath)
+                    $comparison = if ([Environment]::OSVersion.Platform -eq 'Win32NT') {
+                        [StringComparison]::OrdinalIgnoreCase
+                    } else { [StringComparison]::Ordinal }
+                    $samePath = [string]::Equals($originalFull, $full, $comparison)
+                }
+                if (!$samePath) { $expectedVersion = $null }
+            }
             $temp = $full + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+            $current = $null
             try {
                 [IO.File]::WriteAllBytes($temp, [Convert]::FromBase64String($content))
-                if ([IO.File]::Exists($full)) {
+                try {
+                    $current = [IO.File]::Open($full, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+                        [IO.FileShare]::Read -bor [IO.FileShare]::Delete)
+                } catch [IO.FileNotFoundException] { } catch [IO.DirectoryNotFoundException] { }
+                $actualVersion = $null
+                if ($current) {
+                    $sha = [Security.Cryptography.SHA256]::Create()
+                    try { $actualVersion = [BitConverter]::ToString($sha.ComputeHash($current)).Replace('-', '') }
+                    finally { $sha.Dispose() }
+                }
+                $sameVersion = if ($null -eq $expectedVersion) { $null -eq $actualVersion }
+                    else { $null -ne $actualVersion -and [string]::Equals($expectedVersion, $actualVersion, [StringComparison]::OrdinalIgnoreCase) }
+                if (!$sameVersion) {
+                    [pscustomobject]@{ Path = $full; Conflict = $true; ExpectedVersion = $expectedVersion; ActualVersion = $actualVersion }
+                    return
+                }
+                if ($current) {
                     if ($IsLinux -or $IsMacOS) { [IO.File]::SetUnixFileMode($temp, [IO.File]::GetUnixFileMode($full)) }
                     [IO.File]::Replace($temp, $full, [System.Management.Automation.Language.NullString]::Value)
                 } else { [IO.File]::Move($temp, $full) }
-                $full
-            } finally { if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) } }
-            """, useLocalScope: true).AddArgument(path ?? file.Path).AddArgument(Convert.ToBase64String(file.Encode(snapshot)));
-        var savedPath = await FileQueryAsync(command, values => values.Single().ToString(), id);
-        file.MarkRemoteSaved(savedPath, snapshot, id, computer);
+                [pscustomobject]@{ Path = $full; Conflict = $false }
+            } finally {
+                if ($current) { $current.Dispose() }
+                if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) }
+            }
+            """, useLocalScope: true).AddArgument(path ?? file.Path).AddArgument(Convert.ToBase64String(bytes))
+            .AddArgument(expectedVersion).AddArgument(file.IsRemote ? file.Path : null).AddArgument(useSavedVersion);
+        var savedPath = await FileQueryAsync(command, values =>
+        {
+            var result = values.Single();
+            var savedPath = result.Properties["Path"].Value.ToString()!;
+            if (LanguagePrimitives.ConvertTo<bool>(result.Properties["Conflict"].Value))
+                throw new FileConflictException(savedPath, result.Properties["ExpectedVersion"].Value?.ToString(),
+                    result.Properties["ActualVersion"].Value?.ToString());
+            return savedPath;
+        }, id);
+        file.MarkRemoteSaved(savedPath, snapshot, snapshotEncoding, ScriptFile.GetVersion(bytes), id, computer);
     }
 
     private Task<T> FileQueryAsync<T>(PSCommand command, Func<PSObject[], T> read, Guid? expectedRunspace = null) =>
@@ -249,6 +300,42 @@ public sealed partial class PowerShellSession
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         return FileQueryAsync(new PSCommand().AddCommand("Test-Path").AddParameter("LiteralPath", path),
             values => LanguagePrimitives.ConvertTo<bool>(values.Single()), RunspaceId);
+    }
+
+    public Task<string?> GetRemoteFileVersionAsync(string path) => ReadRemoteFileVersionAsync(path);
+
+    public Task<string?> ReadRemoteFileVersionAsync(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var command = new PSCommand().AddScript("""
+            param($path)
+            $ErrorActionPreference = 'Stop'
+            $provider = $null
+            $drive = $null
+            $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path, [ref]$provider, [ref]$drive)
+            if ($provider.Name -ne 'FileSystem') { throw 'Select a filesystem file.' }
+            $current = $null
+            try {
+                try {
+                    $current = [IO.File]::Open($full, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+                        [IO.FileShare]::Read -bor [IO.FileShare]::Delete)
+                } catch [IO.FileNotFoundException] { } catch [IO.DirectoryNotFoundException] { }
+                $version = $null
+                if ($current) {
+                    $sha = [Security.Cryptography.SHA256]::Create()
+                    try { $version = [BitConverter]::ToString($sha.ComputeHash($current)).Replace('-', '') }
+                    finally { $sha.Dispose() }
+                }
+                [pscustomobject]@{ Version = $version }
+            } finally { if ($current) { $current.Dispose() } }
+            """, useLocalScope: true).AddArgument(path);
+        return FileQueryAsync(command, values => values.Single().Properties["Version"].Value?.ToString(), RunspaceId);
+    }
+
+    public async Task<bool> HasRemoteFileChangesAsync(ScriptFile file)
+    {
+        EnsureRemoteFile(file);
+        return !ScriptFile.VersionsMatch(file.SavedVersion, await ReadRemoteFileVersionAsync(file.Path!));
     }
 
     private static CommandFormDescription GetRemoteCommandForm(PowerShell shell, string name, string? module)

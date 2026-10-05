@@ -2,7 +2,8 @@ using System.Text.Json;
 
 namespace Iseberg.Core;
 
-public sealed record RecoveredScript(Guid Id, string Name, string? Path, string Text, int OwnerProcessId = 0, DateTime OwnerStartedUtc = default);
+public sealed record RecoveredScript(Guid Id, string Name, string? Path, string Text, int OwnerProcessId = 0,
+    DateTime OwnerStartedUtc = default, ScriptEncoding? Encoding = null, string? SessionName = null);
 
 public sealed class ScriptRecovery(string? directory = null)
 {
@@ -11,7 +12,7 @@ public sealed class ScriptRecovery(string? directory = null)
     private readonly int ownerProcessId = Environment.ProcessId;
     private readonly DateTime ownerStartedUtc = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime();
 
-    public async Task SaveAsync(Guid id, ScriptFile file)
+    public async Task SaveAsync(Guid id, ScriptFile file, string? sessionName = null)
     {
         if (!file.IsDirty) { Remove(id); return; }
         if (OperatingSystem.IsWindows()) Directory.CreateDirectory(directory);
@@ -27,7 +28,8 @@ public sealed class ScriptRecovery(string? directory = null)
             var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
             if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
             await using (var stream = new FileStream(temporary, options))
-                await JsonSerializer.SerializeAsync(stream, new RecoveredScript(id, file.Name, file.Path, file.Text, ownerProcessId, ownerStartedUtc));
+                await JsonSerializer.SerializeAsync(stream, new RecoveredScript(id, file.Name, file.Path, file.Text,
+                    ownerProcessId, ownerStartedUtc, file.EncodingChoice, sessionName));
             File.Move(temporary, path, overwrite: true);
         }
         finally { File.Delete(temporary); }
@@ -41,6 +43,9 @@ public sealed class ScriptRecovery(string? directory = null)
         {
             var script = JsonSerializer.Deserialize<RecoveredScript>(await File.ReadAllTextAsync(path))
                 ?? throw new InvalidDataException($"Empty recovery file: {path}");
+            if (script.Id == Guid.Empty || string.IsNullOrWhiteSpace(script.Name) || script.Text is null)
+                throw new InvalidDataException($"Invalid recovery file: {path}");
+            if (script.Encoding is not null) _ = script.Encoding.CreateEncoding();
             if (!OwnerIsRunning(script)) scripts.Add(script);
         }
         return scripts;

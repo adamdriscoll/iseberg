@@ -116,8 +116,10 @@ public sealed class DesktopTests
         finally { owner.Close(); }
     }
 
-    [AvaloniaFact]
-    public async Task RemoteTabDebuggerNavigatesRemoteSourceAndRestoresLocalBreakpointContext()
+    [AvaloniaTheory]
+    [InlineData(0)]
+    [InlineData(11000)]
+    public async Task RemoteTabDebuggerNavigatesRemoteSourceAndRestoresLocalBreakpointContext(int localDiscoveryDelayMilliseconds)
     {
         await using var server = await RemotingTests.RemoteServer.StartAsync();
         var window = new MainWindow([], initializeOnOpen: false);
@@ -128,6 +130,13 @@ public sealed class DesktopTests
         try
         {
             await session.Engine.InitializeAsync();
+            if (localDiscoveryDelayMilliseconds > 0)
+                await session.Engine.ExecuteAsync($$"""
+                    function Get-Command {
+                        Start-Sleep -Milliseconds {{localDiscoveryDelayMilliseconds}}
+                        Microsoft.PowerShell.Core\Get-Command @args
+                    }
+                    """);
             window.Workbench.Sessions.Add(session);
             window.Workbench.SelectedSession = session;
             Layout(window);
@@ -158,8 +167,10 @@ public sealed class DesktopTests
             session.Engine.Resume(System.Management.Automation.DebuggerResumeAction.Continue);
             await execution.WaitAsync(TimeSpan.FromSeconds(20));
             await WaitForUiAsync(() => session.DebugSnapshot is null);
-            await session.Engine.ExitRemoteSessionAsync();
-            await WaitForUiAsync(() => session.Breakpoints.Count == 1 && !session.DisplayName.Contains('['));
+            // Keep UI notifications queued so the engine identity changes before the breakpoint list.
+            Task.Run(session.Engine.ExitRemoteSessionAsync).WaitAsync(TimeSpan.FromSeconds(20)).GetAwaiter().GetResult();
+            await WaitForUiAsync(() => session.Breakpoints.Count == 1 && session.Breakpoints[0].Spec.Line == 1 &&
+                !session.DisplayName.Contains('['), TestTimeouts.CommandDiscovery);
             Assert.Equal(1, session.Breakpoints.Single().Spec.Line);
             Assert.Equal(2, session.Files.Count);
         }

@@ -13,6 +13,18 @@ namespace Iseberg.Tests;
 public sealed class RemotingTests
 {
     [Fact]
+    public async Task DelayedServerStartupWaitsForTheReadinessMarker()
+    {
+        await using var server = await RemoteServer.StartAsync(startupDelayMilliseconds: 16000);
+        await using var session = new PowerShellSession();
+        await session.InitializeAsync();
+        await session.ConnectAsync(server.Connection);
+        Assert.True(session.IsRemote);
+        await session.ExitRemoteSessionAsync();
+        Assert.False(session.IsRemote);
+    }
+
+    [Fact]
     public async Task RemoteCommandDiscoveryDoesNotSerializeUnusedMetadata()
     {
         await using var server = await RemoteServer.StartAsync();
@@ -276,20 +288,21 @@ public sealed class RemotingTests
             if (!process.HasExited) process.Kill(entireProcessTree: true);
         }
 
-        public static async Task<RemoteServer> StartAsync()
+        public static async Task<RemoteServer> StartAsync(int startupDelayMilliseconds = 0)
         {
+            ArgumentOutOfRangeException.ThrowIfNegative(startupDelayMilliseconds);
             var start = new ProcessStartInfo("pwsh")
             {
                 UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
                 CreateNoWindow = true
             };
             foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
-                "Write-Output 'remote-server-ready'; Start-Sleep -Seconds 180" })
+                $"Start-Sleep -Milliseconds {startupDelayMilliseconds}; Write-Output 'remote-server-ready'; Start-Sleep -Seconds 180" })
                 start.ArgumentList.Add(argument);
             var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start the remoting test server.");
             try
             {
-                Assert.Equal("remote-server-ready", await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(15)));
+                Assert.Equal("remote-server-ready", await process.StandardOutput.ReadLineAsync().WaitAsync(TestTimeouts.PowerShellStartup));
                 return new(process);
             }
             catch
