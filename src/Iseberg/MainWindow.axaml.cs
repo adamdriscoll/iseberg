@@ -1767,7 +1767,7 @@ public sealed partial class MainWindow : Window
         {
             foreach (var session in Workbench.Sessions)
             {
-                if (session.Engine.State is SessionState.Running or SessionState.Debugging)
+                if (session.Engine.State is SessionState.Running or SessionState.Debugging or SessionState.NestedPrompt)
                 {
                     if (await Dialogs.ChooseAsync(this, "Stop execution", "Stop the running command and exit?", "Stop", "Cancel") != "Stop")
                         return;

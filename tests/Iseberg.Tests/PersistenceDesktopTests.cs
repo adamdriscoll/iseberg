@@ -15,6 +15,47 @@ namespace Iseberg.Tests;
 public sealed class PersistenceDesktopTests
 {
     [AvaloniaFact]
+    public async Task ClosingDuringNestedPromptRequiresConsentAndCancelRestoresEditing()
+    {
+        var settingsPath = TempPath();
+        var window = new MainWindow([], settingsPath: settingsPath);
+        try
+        {
+            await new UserSettings { LoadProfiles = false, AutoSaveMinutes = 0 }.SaveAsync(settingsPath);
+            Layout(window);
+            await WaitFor(() => File.Exists(settingsPath + ".workbench.json") &&
+                window.Workbench.SelectedSession?.Engine.State == SessionState.Ready);
+            var session = window.Workbench.SelectedSession!;
+            var execution = session.Engine.ExecuteAsync("$Host.EnterNestedPrompt(); 'returned'");
+            var editor = window.FindControl<TextEditor>("ConsoleEditor")!;
+            await WaitFor(() => session.Engine.IsNestedPromptActive && !editor.IsReadOnly);
+            window.Close();
+            await WaitFor(() => window.OwnedWindows.Any());
+            Assert.True(editor.IsReadOnly);
+            ClickChoice(window, "Cancel");
+            await WaitFor(() => !window.OwnedWindows.Any() && !editor.IsReadOnly);
+            Assert.True(window.IsVisible);
+            Assert.True(session.Engine.IsNestedPromptActive);
+            Assert.False(execution.IsCompleted);
+            window.Close();
+            await WaitFor(() => window.OwnedWindows.Any());
+            ClickChoice(window, "Stop");
+            await WaitFor(() => !window.IsVisible);
+            await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(SessionState.Disposed, session.Engine.State);
+        }
+        finally
+        {
+            foreach (var session in window.Workbench.Sessions)
+                if (session.Engine.State != SessionState.Disposed) await session.Engine.DisposeAsync();
+            foreach (var dialog in window.OwnedWindows.ToArray()) dialog.Close();
+            window.Close();
+            File.Delete(settingsPath);
+            File.Delete(settingsPath + ".workbench.json");
+        }
+    }
+
+    [AvaloniaFact]
     public async Task RecoveryUsesTheOwningRestoredTabWithoutReplacingDiskAndCleanExitKeepsTheWorkbench()
     {
         var settingsPath = TempPath();
