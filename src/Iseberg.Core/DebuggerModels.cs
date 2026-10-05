@@ -33,12 +33,14 @@ public sealed record DebugBreakpoint(int Id, BreakpointSpec Spec, int HitCount)
         (string.IsNullOrWhiteSpace(Spec.Action) ? "" : $" {{{Spec.Action}}}");
 }
 
-public sealed record DebugValue(string Name, string Value, string Type, string? Error = null)
+public sealed record DebugValue(string Name, string Value, string Type, string? Error = null, long? Reference = null)
 {
     public override string ToString() => Error is null ? $"{Name} = {Value}  [{Type}]" : $"{Name}: {Error}";
 }
 
-public sealed record DebugFrame(string FunctionName, string? ScriptPath, int Line)
+public sealed record DebugChildren(IReadOnlyList<DebugValue> Values, int? NextOffset);
+
+public sealed record DebugFrame(string FunctionName, string? ScriptPath, int Line, int Index = 0)
 {
     public override string ToString() => $"{FunctionName} - {ScriptPath ?? "<interactive>"}:{Line}";
 }

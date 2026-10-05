@@ -11,6 +11,8 @@ namespace Iseberg;
 public sealed partial class MainWindow
 {
     private readonly Dictionary<SessionModel, (Action<SessionState> State, Action<DebugLocation?> Stop)> debuggerHandlers = [];
+    private readonly SemaphoreSlim debuggerSettingsGate = new(1, 1);
+    private bool renderingDebugger;
 
     private void AttachDebugger(SessionModel session)
     {
@@ -23,6 +25,9 @@ public sealed partial class MainWindow
                 if (revision != session.DebugRevisionCounter) return;
                 session.DebugLocation = location;
                 session.DebugSnapshot = null;
+                session.SelectedDebugFrame = 0;
+                session.Completion = null;
+                if (session == displayedSession) completion?.Close();
                 if (location is not null && session.Engine.State == SessionState.Debugging)
                 {
                     session.DebuggerPaneVisible = true;
@@ -61,18 +66,76 @@ public sealed partial class MainWindow
     private void RenderDebugger()
     {
         var session = displayedSession;
-        DebuggerPane.IsVisible = session?.DebuggerPaneVisible == true;
-        VariablesList.ItemsSource = session?.DebugSnapshot?.Variables;
-        WatchesList.ItemsSource = session?.DebugSnapshot?.Watches ??
-            session?.Watches.Select(expression => new DebugValue(expression, "", "")).ToArray();
-        CallStackList.ItemsSource = session?.DebugSnapshot?.CallStack;
+        ApplySidePaneLayout();
+        VariablesList.ItemsSource = session?.DebugSnapshot?.Variables.Select(value => CreateDebugTreeItem(session, value)).ToArray();
+        WatchesList.ItemsSource = (session?.DebugSnapshot?.Watches ??
+            session?.Watches.Select(expression => new DebugValue(expression, "", "")).ToArray())?
+            .Select(value => CreateDebugTreeItem(session!, value)).ToArray();
+        renderingDebugger = true;
+        try
+        {
+            CallStackList.ItemsSource = session?.DebugSnapshot?.CallStack;
+            CallStackList.SelectedIndex = session?.DebugSnapshot?.CallStack.Count is > 0 ? session.SelectedDebugFrame : -1;
+        }
+        finally { renderingDebugger = false; }
+        DebuggerScope.Text = session?.DebugSnapshot is { CallStack.Count: > 0 } snapshot
+            ? string.Format(UiText.Get("DebuggerInspectionScope"), snapshot.CallStack[session.SelectedDebugFrame].FunctionName)
+            : UiText.Get("DebuggerEvaluationScope");
         var selectedId = (BreakpointsList.SelectedItem as DebugBreakpoint)?.Id;
         BreakpointsList.ItemsSource = session?.Breakpoints;
         BreakpointsList.SelectedItem = session?.Breakpoints.FirstOrDefault(breakpoint => breakpoint.Id == selectedId);
+        UpdateWatchControls();
         UpdateBreakpointControls();
     }
 
+    private TreeViewItem CreateDebugTreeItem(SessionModel session, DebugValue value)
+    {
+        var item = new TreeViewItem { Header = value.ToString(), Tag = value };
+        if (value.Reference is not { } reference) return item;
+        item.Items.Add(new TreeViewItem { Header = UiText.Get("ExpandDebuggerValue") });
+        var snapshot = session.DebugSnapshot;
+        var loading = false;
+        var loaded = false;
+        async Task LoadAsync(int offset)
+        {
+            if (loading || session.DebugSnapshot != snapshot || !session.Engine.IsDebuggerPaused) return;
+            loading = true;
+            if (offset == 0 && item.Items[0] is TreeViewItem placeholder)
+                placeholder.Header = UiText.Get("LoadingDebuggerValue");
+            try
+            {
+                var children = await session.Engine.GetValueChildrenAsync(reference, offset);
+                if (session.DebugSnapshot != snapshot || !session.Engine.IsDebuggerPaused) return;
+                if (offset == 0) item.Items.Clear();
+                else item.Items.RemoveAt(item.Items.Count - 1);
+                foreach (var child in children.Values) item.Items.Add(CreateDebugTreeItem(session, child));
+                if (children.NextOffset is { } next)
+                {
+                    var more = new Button { Content = UiText.Get("MoreDebuggerValues") };
+                    more.Click += async (_, _) => await GuardAsync(() => LoadAsync(next));
+                    item.Items.Add(new TreeViewItem { Header = more });
+                }
+                loaded = true;
+            }
+            catch (InvalidOperationException) when (session.DebugSnapshot != snapshot || !session.Engine.IsDebuggerPaused) { }
+            finally { loading = false; }
+        }
+        item.PropertyChanged += async (_, e) =>
+        {
+            if (e.Property == TreeViewItem.IsExpandedProperty && item.IsExpanded && !loaded)
+                await GuardAsync(() => LoadAsync(0));
+        };
+        return item;
+    }
+
     private async Task RefreshDebuggerAsync(SessionModel session, bool reconcile = false)
+    {
+        await session.DebugRefreshGate.WaitAsync();
+        try { await RefreshDebuggerCoreAsync(session, reconcile); }
+        finally { session.DebugRefreshGate.Release(); }
+    }
+
+    private async Task RefreshDebuggerCoreAsync(SessionModel session, bool reconcile)
     {
         var revision = session.DebugRevisionCounter;
         var state = session.Engine.State;
@@ -86,7 +149,12 @@ public sealed partial class MainWindow
                     tab.AcknowledgeBreakpointLines();
                 }
             var breakpoints = await session.Engine.GetBreakpointsAsync();
-            var snapshot = state == SessionState.Debugging ? await session.Engine.InspectAsync(session.Watches) : null;
+            if (state == SessionState.Debugging)
+            {
+                session.DebugSnapshot = null;
+                if (session == displayedSession) RenderDebugger();
+            }
+            var snapshot = state == SessionState.Debugging ? await session.Engine.InspectAsync(session.Watches, session.SelectedDebugFrame) : null;
             if (revision != session.DebugRevisionCounter || session.Engine.State != state) return;
             session.Breakpoints = breakpoints;
             session.DebugSnapshot = snapshot;
@@ -99,6 +167,7 @@ public sealed partial class MainWindow
                 RenderDebugger();
                 ScriptEditor.TextArea.TextView.Redraw();
             }
+            await SaveDebuggerSettingsAsync(session);
         }
         catch (InvalidOperationException) when (revision != session.DebugRevisionCounter || session.Engine.State != state ||
             state == SessionState.Debugging && !session.Engine.IsDebuggerPaused)
@@ -110,12 +179,12 @@ public sealed partial class MainWindow
     private static bool SameScript(string? first, string? second) =>
         string.Equals(first, second, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
-    private async Task ToggleLineBreakpointAsync(SessionModel session, ScriptTab file)
+    private async Task ToggleLineBreakpointAsync(SessionModel session, ScriptTab file, int? sourceLine = null)
     {
-        if (session.Engine.State is not (SessionState.Ready or SessionState.Debugging))
-            throw new InvalidOperationException("Pause or stop execution before changing breakpoints.");
+        var line = sourceLine ?? ScriptEditor.TextArea.Caret.Line;
+        await PrepareBreakpointEditAsync(session);
         var previous = file.LineBreakpoints.ToArray();
-        file.ToggleBreakpoint(ScriptEditor.TextArea.Caret.Line);
+        file.ToggleBreakpoint(line);
         try
         {
             if (file.File.Path is not null)
@@ -130,17 +199,18 @@ public sealed partial class MainWindow
             file.ReplaceBreakpoints(previous);
             throw;
         }
+        await SaveDebuggerSettingsAsync(session);
         ScriptEditor.TextArea.TextView.Redraw();
+        breakpointMargin.InvalidateVisual();
     }
 
     private async Task EditBreakpointAsync(SessionModel session, bool create)
     {
-        if (session.Engine.State is not (SessionState.Ready or SessionState.Debugging))
-            throw new InvalidOperationException("Pause or stop execution before changing breakpoints.");
         var selected = create ? null : BreakpointsList.SelectedItem as DebugBreakpoint;
         if (!create && selected is null) throw new InvalidOperationException("Select a breakpoint to edit.");
         var spec = selected?.Spec ?? new BreakpointSpec(displayedFile?.File.Path is null ? BreakpointKind.Command : BreakpointKind.Line, displayedFile?.File.Path,
             Line: ScriptEditor.TextArea.Caret.Line);
+        await PrepareBreakpointEditAsync(session);
         var edited = await new BreakpointWindow(spec).ShowDialog<BreakpointSpec?>(this);
         if (edited is null) return;
         if (selected is null) await session.Engine.AddBreakpointAsync(edited);
@@ -178,13 +248,42 @@ public sealed partial class MainWindow
 
     private void UpdateBreakpointControls()
     {
-        var editable = displayedSession?.Engine.State is SessionState.Ready or SessionState.Debugging &&
-            displayedSession?.Evaluating != true;
+        var editable = displayedSession?.Engine.State is SessionState.Ready or SessionState.Debugging or SessionState.Running &&
+            displayedSession?.Evaluating != true && displayedSession?.EditingBreakpoints != true;
         var selected = BreakpointsList.SelectedItem is DebugBreakpoint;
+        breakpointMargin.IsEnabled = editable && displayedFile is not null;
+        NewBreakpointButton.IsEnabled = editable;
         EditBreakpointButton.IsEnabled = EnableBreakpointButton.IsEnabled = DeleteBreakpointButton.IsEnabled = editable && selected;
     }
 
     private void OnBreakpointSelected(object? sender, SelectionChangedEventArgs e) => UpdateBreakpointControls();
+
+    private void UpdateWatchControls() =>
+        RemoveWatchButton.IsEnabled = WatchesList.SelectedItem is TreeViewItem item && WatchesList.Items.Contains(item);
+
+    private void OnWatchSelected(object? sender, SelectionChangedEventArgs e) => UpdateWatchControls();
+
+    private async void OnDebugScopeSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (renderingDebugger || displayedSession is not { } session || !session.Engine.IsDebuggerPaused ||
+            CallStackList.SelectedItem is not DebugFrame frame || frame.Index == session.SelectedDebugFrame) return;
+        var previous = session.SelectedDebugFrame;
+        session.SelectedDebugFrame = frame.Index;
+        session.Completion = null;
+        completion?.Close();
+        Interlocked.Increment(ref session.DebugRevisionCounter);
+        await GuardAsync(async () =>
+        {
+            try { await RefreshDebuggerAsync(session, reconcile: true); }
+            catch
+            {
+                session.SelectedDebugFrame = previous;
+                Interlocked.Increment(ref session.DebugRevisionCounter);
+                await RefreshDebuggerAsync(session, reconcile: true);
+                throw;
+            }
+        });
+    }
 
     private async void OnDebugFrameSelected(object? sender, TappedEventArgs e)
     {
@@ -199,5 +298,51 @@ public sealed partial class MainWindow
                 ScriptEditor.TextArea.Focus();
             }
         });
+    }
+
+    private async Task PrepareBreakpointEditAsync(SessionModel session)
+    {
+        if (session.Evaluating) throw new InvalidOperationException("Wait for debugger evaluation to finish before editing breakpoints.");
+        if (session.EditingBreakpoints) throw new InvalidOperationException("A breakpoint edit is already waiting for execution to pause.");
+        session.EditingBreakpoints = true;
+        RefreshState();
+        try
+        {
+            if (session.Engine.State == SessionState.Running) StatusText.Text = UiText.Get("PauseForBreakpointEdit");
+            await session.Engine.PauseForBreakpointEditAsync();
+        }
+        finally { session.EditingBreakpoints = false; RefreshState(); }
+    }
+
+    private async Task SaveDebuggerSettingsAsync(SessionModel session)
+    {
+        await debuggerSettingsGate.WaitAsync();
+        try
+        {
+            var saved = new DebuggerSessionSettings
+            {
+                Name = session.Name,
+                Watches = session.Watches.ToList(),
+                Breakpoints = session.Breakpoints.Select(breakpoint => breakpoint.Spec).ToList()
+            };
+            settings.DebuggerSessions.RemoveAll(previous => previous.Name == session.Name);
+            settings.DebuggerSessions.Add(saved);
+            if (initialized || settingsFilePath is not null) await settings.SaveAsync(settingsFilePath);
+        }
+        finally { debuggerSettingsGate.Release(); }
+    }
+
+    private async Task RestoreDebuggerSettingsAsync(SessionModel session)
+    {
+        var saved = settings.DebuggerSessions.FirstOrDefault(previous => previous.Name == session.Name);
+        if (saved is null) return;
+        session.Watches.AddRange(saved.Watches);
+        foreach (var spec in saved.Breakpoints)
+            await session.Engine.AddBreakpointAsync(spec);
+        session.Breakpoints = await session.Engine.GetBreakpointsAsync();
+        foreach (var tab in session.Files.Where(tab => tab.File.Path is not null))
+            tab.ReplaceBreakpoints(session.Breakpoints.Where(breakpoint => breakpoint.Spec.Kind == BreakpointKind.Line &&
+                SameScript(breakpoint.Spec.ScriptPath, tab.File.Path)).Select(breakpoint => breakpoint.Spec));
+        RenderDebugger();
     }
 }

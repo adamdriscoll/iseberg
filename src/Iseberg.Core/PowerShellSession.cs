@@ -187,7 +187,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         SetLineBreakpointsAsync(path, lines.Select(line => new BreakpointSpec(BreakpointKind.Line, path, Line: line)));
 
     public Task<CompletionSet> CompleteAsync(string text, int cursor, CancellationToken cancellationToken = default) =>
-        QueryAsync(shell =>
+        State == SessionState.Debugging ? CompletePausedAsync(text, cursor, cancellationToken) : QueryAsync(shell =>
         {
             var result = CommandCompletion.CompleteInput(text, cursor, null, shell);
             return new CompletionSet(result.ReplacementIndex, result.ReplacementLength, result.CompletionMatches.ToArray());
@@ -270,6 +270,8 @@ public sealed partial class PowerShellSession : IAsyncDisposable
                 using var shell = CreateShell();
                 using var registration = cancellationToken.Register(() => shell.Stop());
                 cancellationToken.ThrowIfCancellationRequested();
+                var debugMode = runspace.Debugger.DebugMode;
+                runspace.Debugger.SetDebugMode(DebugModes.None);
                 try
                 {
                     var result = query(shell);
@@ -280,6 +282,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
                 {
                     throw new OperationCanceledException(cancellationToken);
                 }
+                finally { runspace.Debugger.SetDebugMode(debugMode); }
             });
         }
         finally { gate.Release(); }
@@ -346,8 +349,9 @@ public sealed partial class PowerShellSession : IAsyncDisposable
             resumeAction = stopRequested ? DebuggerResumeAction.Stop : DebuggerResumeAction.Continue;
             SetState(SessionState.Debugging);
         }
-        DebuggerStopped?.Invoke(new(e.InvocationInfo.ScriptName, e.InvocationInfo.ScriptLineNumber,
-            e.InvocationInfo.OffsetInLine, e.InvocationInfo.PositionMessage));
+        var invocation = e.InvocationInfo;
+        DebuggerStopped?.Invoke(new(invocation?.ScriptName, invocation?.ScriptLineNumber ?? 0,
+            invocation?.OffsetInLine ?? 0, invocation?.PositionMessage ?? "Execution paused without a script location."));
         try
         {
             while (true)
@@ -367,6 +371,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
             lock (sync)
             {
                 e.ResumeAction = resumeAction;
+                debugValues.Clear();
                 while (debugWork.TryDequeue(out var work))
                     work.Fail(new InvalidOperationException("The debugger has resumed."));
             }
@@ -380,6 +385,8 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         using var shell = PowerShell.Create();
         shell.Runspace = runspace;
         shell.AddScript("prompt", useLocalScope: true);
+        var debugMode = runspace.Debugger.DebugMode;
+        runspace.Debugger.SetDebugMode(DebugModes.None);
         try
         {
             IAsyncResult invocation;
@@ -408,7 +415,11 @@ public sealed partial class PowerShellSession : IAsyncDisposable
             Prompt = "PS> ";
             Output?.Invoke(new("The prompt function failed: " + exception.Message + Environment.NewLine, OutputKind.Error));
         }
-        finally { lock (sync) active = null; }
+        finally
+        {
+            lock (sync) active = null;
+            runspace.Debugger.SetDebugMode(debugMode);
+        }
     }
 
     private void SetState(SessionState state)

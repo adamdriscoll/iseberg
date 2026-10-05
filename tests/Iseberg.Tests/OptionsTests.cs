@@ -177,7 +177,8 @@ public sealed class OptionsTests
         var dialog = new OptionsWindow(new UserSettings
         {
             ShowToolbar = false, FontSize = 20, LoadProfiles = true, Zoom = 140,
-            CustomThemes = [new() { Name = "Saved theme" }], RecentFiles = ["example.ps1"]
+            CustomThemes = [new() { Name = "Saved theme" }], RecentFiles = ["example.ps1"],
+            DebuggerSessions = [new() { Name = "PowerShell 1", Watches = ["$value"], Breakpoints = [new(BreakpointKind.Command, Target: "Get-Process")] }]
         }, _ => Task.CompletedTask);
         try
         {
@@ -189,6 +190,8 @@ public sealed class OptionsTests
             Assert.Equal(140, dialog.Draft.Zoom);
             Assert.Single(dialog.Draft.CustomThemes);
             Assert.Single(dialog.Draft.RecentFiles);
+            Assert.Equal("$value", dialog.Draft.DebuggerSessions.Single().Watches.Single());
+            Assert.Equal("Get-Process", dialog.Draft.DebuggerSessions.Single().Breakpoints.Single().Target);
         }
         finally { dialog.Close(); }
     }

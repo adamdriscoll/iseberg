@@ -24,6 +24,7 @@ namespace Iseberg;
 public sealed partial class MainWindow : Window
 {
     private readonly string[] startupFiles;
+    private readonly string? settingsFilePath;
     private readonly DispatcherTimer outputTimer;
     private readonly DispatcherTimer analysisTimer;
     private readonly DispatcherTimer autoSaveTimer;
@@ -34,6 +35,7 @@ public sealed partial class MainWindow : Window
     private Task autoSaveTask = Task.CompletedTask;
     private Control? editTarget;
     private readonly PowerShellColorizer colorizer = new();
+    private readonly BreakpointMargin breakpointMargin;
     private FoldingManager folding;
     private readonly SearchPanel search;
     private UserSettings settings = new();
@@ -53,12 +55,18 @@ public sealed partial class MainWindow : Window
     private IReadOnlySet<CompletionResultType>? automaticCompletionFilter;
     private TextEditor? automaticCompletionEditor;
     private string? completionNotice;
+    private GridLength debuggerDockWidth = new(360);
+    private GridLength commandDockWidth = new(290);
+    private bool sidePaneLayoutInitialized;
+    private bool debuggerDockVisible;
+    private bool commandDockVisible;
     public WorkbenchModel Workbench { get; } = new();
 
     public MainWindow() : this([]) { }
 
-    public MainWindow(string[] args, bool initializeOnOpen = true, UserSettings? preferences = null)
+    public MainWindow(string[] args, bool initializeOnOpen = true, UserSettings? preferences = null, string? settingsPath = null)
     {
+        settingsFilePath = settingsPath;
         if (preferences is not null) { settings = preferences.Copy(); settings.Normalize(); }
         startupFiles = args;
         InitializeComponent();
@@ -87,7 +95,21 @@ public sealed partial class MainWindow : Window
         ScriptEditor.Options.HighlightCurrentLine = true;
         ScriptEditor.TextArea.TextView.LineTransformers.Add(colorizer);
         ScriptEditor.TextArea.TextView.BackgroundRenderers.Add(new ScriptAdornments(
-            () => displayedFile, () => displayedSession?.DebugLocation));
+            () => displayedFile, () => displayedSession?.DebugLocation, () => settings.Theme));
+        breakpointMargin = new(() => displayedFile, () => displayedSession?.DebugLocation, () => settings.Theme)
+        {
+            Name = "BreakpointGutter",
+            Cursor = new Cursor(StandardCursorType.Hand),
+            ClipToBounds = true
+        };
+        AutomationProperties.SetName(breakpointMargin, UiText.Get("BreakpointGutter"));
+        ToolTip.SetTip(breakpointMargin, UiText.Get("BreakpointGutterHint"));
+        breakpointMargin.BreakpointRequested += async line =>
+        {
+            if (displayedSession is { } session && displayedFile is { } file)
+                await GuardAsync(() => ToggleLineBreakpointAsync(session, file, line));
+        };
+        ScriptEditor.TextArea.LeftMargins.Insert(0, breakpointMargin);
         ConsoleEditor.TextArea.TextView.LineTransformers.Add(new ConsoleColorizer(() => displayedSession, () => settings.Theme));
         ConsoleEditor.Options.AllowScrollBelowDocument = false;
         ConsoleEditor.Options.CutCopyWholeLine = false;
@@ -160,7 +182,7 @@ public sealed partial class MainWindow : Window
 
     private async Task StartAsync()
     {
-        try { settings = await UserSettings.LoadAsync(); }
+        try { settings = await UserSettings.LoadAsync(settingsFilePath); }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
         {
             await ReportErrorAsync("Could not load settings", exception);
@@ -215,6 +237,7 @@ public sealed partial class MainWindow : Window
             session.Console.HidePrompt();
             session.Console.Append(new($"PowerShell {session.Engine.Version}\nCopyright (c) Microsoft Corporation.\n\n", OutputKind.Output));
             if (settings.LoadProfiles) await LoadProfilesAsync(session);
+            await RestoreDebuggerSettingsAsync(session);
             await RefreshCommandsAsync(session);
         }
         catch (Exception exception) when (exception is RuntimeException or InvalidOperationException or IOException)
@@ -306,6 +329,7 @@ public sealed partial class MainWindow : Window
     {
         colorizer.Analysis = EditorAnalysis.Analyze(ScriptEditor.Text);
         ScriptEditor.TextArea.TextView.Redraw();
+        breakpointMargin.InvalidateVisual();
         folding.UpdateFoldings(settings.ShowOutlining ? colorizer.Analysis.Folds.Select(f => new NewFolding(f.Start, f.End)) : [], -1);
         Diagnostics.IsVisible = colorizer.Analysis.Errors.Length > 0;
         Diagnostics.Text = string.Join("  |  ", colorizer.Analysis.Errors.Take(3).Select(
@@ -336,6 +360,7 @@ public sealed partial class MainWindow : Window
         CommandRefreshButton.IsEnabled = ready;
         CommandList.IsEnabled = ready;
         var canEvaluate = paused && displayedSession?.Evaluating != true;
+        CallStackList.IsEnabled = canEvaluate;
         ConsoleEditor.IsReadOnly = !(ready || canEvaluate);
         ScriptEditor.IsReadOnly = paused;
         if (!ready && !canEvaluate)
@@ -348,7 +373,7 @@ public sealed partial class MainWindow : Window
         StatusText.Text = state switch
         {
             SessionState.Ready => completionNotice ?? UiText.Get("Ready"),
-            SessionState.Running => UiText.Get("Running"),
+            SessionState.Running => UiText.Get(displayedSession?.EditingBreakpoints == true ? "PauseForBreakpointEdit" : "Running"),
             SessionState.Debugging => string.Format(UiText.Get("DebugStatus"), displayedSession?.DebugLocation?.Line),
             SessionState.Disposed => UiText.Get("SessionClosed"),
             _ => UiText.Get("Starting")
@@ -406,6 +431,7 @@ public sealed partial class MainWindow : Window
             case "RemoveBreakpoints":
                 if (session is not null)
                 {
+                    await PrepareBreakpointEditAsync(session);
                     await session.Engine.RemoveAllBreakpointsAsync();
                     foreach (var file in session.Files)
                         file.ClearBreakpoints();
@@ -428,6 +454,7 @@ public sealed partial class MainWindow : Window
             case "EnableBreakpoint":
                 if (session is not null && BreakpointsList.SelectedItem is DebugBreakpoint breakpoint)
                 {
+                    await PrepareBreakpointEditAsync(session);
                     await session.Engine.SetBreakpointEnabledAsync(breakpoint.Id, !breakpoint.Spec.Enabled);
                     ApplyBreakpointChange(session, breakpoint.Spec, breakpoint.Spec with { Enabled = !breakpoint.Spec.Enabled });
                     await RefreshDebuggerAsync(session, reconcile: true);
@@ -436,6 +463,7 @@ public sealed partial class MainWindow : Window
             case "DeleteBreakpoint":
                 if (session is not null && BreakpointsList.SelectedItem is DebugBreakpoint deleted)
                 {
+                    await PrepareBreakpointEditAsync(session);
                     await session.Engine.RemoveBreakpointAsync(deleted.Id);
                     ApplyBreakpointChange(session, deleted.Spec, null);
                     await RefreshDebuggerAsync(session, reconcile: true);
@@ -447,14 +475,17 @@ public sealed partial class MainWindow : Window
                     session.Watches.Add(WatchExpression.Text);
                     WatchExpression.Text = "";
                     await RefreshDebuggerAsync(session);
+                    await SaveDebuggerSettingsAsync(session);
                     RenderDebugger();
                 }
                 break;
             case "RemoveWatch":
-                if (session is not null && WatchesList.SelectedIndex >= 0)
+                if (session is not null && WatchesList.SelectedItem is TreeViewItem watch &&
+                    WatchesList.Items.Contains(watch))
                 {
-                    session.Watches.RemoveAt(WatchesList.SelectedIndex);
+                    session.Watches.RemoveAt(WatchesList.Items.IndexOf(watch));
                     await RefreshDebuggerAsync(session);
+                    await SaveDebuggerSettingsAsync(session);
                     RenderDebugger();
                 }
                 break;
@@ -495,7 +526,7 @@ public sealed partial class MainWindow : Window
             case "CommandHelp": if (CommandList.SelectedItem is CommandDescription selected) await ShowHelpAsync(selected.Name); break;
             case "Help": await ShowHelpAsync(ScriptEditor.SelectedText.Length > 0 ? ScriptEditor.SelectedText : CommandAtCaret()); break;
             case "Profiles": if (session is not null) await LoadProfilesAsync(session); break;
-            case "AutoProfiles": settings.LoadProfiles = !settings.LoadProfiles; UpdateMenuState(); await settings.SaveAsync(); break;
+            case "AutoProfiles": settings.LoadProfiles = !settings.LoadProfiles; UpdateMenuState(); await settings.SaveAsync(settingsFilePath); break;
             case "ExecutionPolicy":
                 if (session is not null && OperatingSystem.IsWindows() &&
                     await Dialogs.ChooseAsync(this, "Execution policy",
@@ -538,7 +569,12 @@ public sealed partial class MainWindow : Window
         var existing = session.Files.FirstOrDefault(tab => string.Equals(tab.File.Path, fullPath,
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
         var tab = existing ?? new ScriptTab(await ScriptFile.OpenAsync(fullPath));
-        if (existing is null) session.Files.Add(tab);
+        if (existing is null)
+        {
+            tab.ReplaceBreakpoints(session.Breakpoints.Where(breakpoint => breakpoint.Spec.Kind == BreakpointKind.Line &&
+                SameScript(breakpoint.Spec.ScriptPath, fullPath)).Select(breakpoint => breakpoint.Spec));
+            session.Files.Add(tab);
+        }
         session.SelectedFile = tab;
         DisplayFile();
         RememberFile(fullPath);
@@ -564,15 +600,14 @@ public sealed partial class MainWindow : Window
         await tab.File.SaveAsync(path);
         await autoSaveTask;
         recovery.Remove(tab.RecoveryId);
-        if (saveAs && previousPath is not null && previousPath != tab.File.Path)
+        var owner = Workbench.Sessions.First(s => s.Files.Contains(tab));
+        if (owner.Engine.State == SessionState.Ready || owner.Engine.IsDebuggerPaused)
         {
-            var owner = Workbench.Sessions.First(s => s.Files.Contains(tab));
-            if (owner.Engine.State is SessionState.Ready or SessionState.Debugging)
-            {
+            if (previousPath is not null && !SameScript(previousPath, tab.File.Path))
                 await owner.Engine.SetBreakpointsAsync(previousPath, []);
-                await owner.Engine.SetLineBreakpointsAsync(tab.File.Path!, tab.LineBreakpoints);
-                await RefreshDebuggerAsync(owner);
-            }
+            await owner.Engine.SetLineBreakpointsAsync(tab.File.Path!, tab.LineBreakpoints);
+            tab.AcknowledgeBreakpointLines();
+            await RefreshDebuggerAsync(owner, reconcile: true);
         }
         RememberFile(path);
         RefreshCaret();
@@ -615,6 +650,7 @@ public sealed partial class MainWindow : Window
         recovery.Remove(tab.RecoveryId);
         if (tab.File.Path is not null) await session.Engine.SetBreakpointsAsync(tab.File.Path, []);
         session.Files.Remove(tab);
+        await RefreshDebuggerAsync(session, reconcile: true);
         if (session.SelectedFile == tab) session.SelectedFile = session.Files.LastOrDefault();
         if (session.Files.Count == 0) NewFile();
         DisplayFile();
@@ -644,6 +680,9 @@ public sealed partial class MainWindow : Window
         }
         foreach (var file in session.Files)
             if (!await ConfirmSaveAsync(file)) return false;
+        if (session.Engine.State == SessionState.Ready)
+            await RefreshDebuggerAsync(session, reconcile: true);
+        await SaveDebuggerSettingsAsync(session);
         await autoSaveTask;
         foreach (var file in session.Files) recovery.Remove(file.RecoveryId);
         await session.Engine.DisposeAsync();
@@ -764,7 +803,7 @@ public sealed partial class MainWindow : Window
         else if (e.Key == Key.Tab)
         {
             e.Handled = true;
-            if (session.Engine.State == SessionState.Ready && ConsoleEditor.CaretOffset >= session.Console.InputStart)
+            if ((session.Engine.State == SessionState.Ready || session.Engine.IsDebuggerPaused) && ConsoleEditor.CaretOffset >= session.Console.InputStart)
                 await GuardAsync(() => CompleteConsoleAsync(e.KeyModifiers.HasFlag(KeyModifiers.Shift)));
         }
     }
@@ -782,11 +821,12 @@ public sealed partial class MainWindow : Window
         if (displayedSession is not { } session) return;
         if (completionPending) return;
         var text = session.Input;
+        var revision = session.DebugRevisionCounter;
         var caret = ConsoleEditor.CaretOffset - session.Console.InputStart;
         var previous = session.Completion;
         var cycling = previous is not null && previous.LastText == text && previous.LastCaret == caret;
         var matches = cycling ? previous!.Results : await GetCompletionAsync(session, text, caret);
-        if (matches is null || session != displayedSession || text != session.Input ||
+        if (matches is null || session != displayedSession || revision != session.DebugRevisionCounter || text != session.Input ||
             caret != ConsoleEditor.CaretOffset - session.Console.InputStart || matches.Matches.Count == 0) return;
         var index = cycling ? (previous!.Index + (backwards ? -1 : 1) + matches.Matches.Count) % matches.Matches.Count : (backwards ? matches.Matches.Count - 1 : 0);
         var original = cycling ? previous!.Original : text;
@@ -900,8 +940,10 @@ public sealed partial class MainWindow : Window
                 "Stop" => state is SessionState.Running or SessionState.Debugging,
                 "StepInto" or "StepOver" or "StepOut" or "Continue" => paused && displayedSession?.Evaluating != true,
                 "BreakAll" => state == SessionState.Running,
-                "Breakpoint" or "RemoveBreakpoints" or "NewBreakpoint" => (ready || paused) && displayedSession?.Evaluating != true,
-                "Profiles" or "Complete" or "ShowCommand" => ready,
+                "Breakpoint" or "RemoveBreakpoints" or "NewBreakpoint" => (ready || paused || state == SessionState.Running) &&
+                    displayedSession?.Evaluating != true && displayedSession?.EditingBreakpoints != true,
+                "Complete" => (ready || paused) && displayedSession?.Evaluating != true,
+                "Profiles" or "ShowCommand" => ready,
                 "ExecutionPolicy" => ready && OperatingSystem.IsWindows(),
                 "Snippets" or "CreateSnippet" => displayedFile is not null && !paused,
                 "Fold" => settings.ShowOutlining,
@@ -1009,6 +1051,8 @@ public sealed partial class MainWindow : Window
         completionPending = true;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(settings.IntelliSenseTimeoutSeconds));
         try { return await session.Engine.CompleteAsync(text, caret, timeout.Token); }
+        catch (InvalidOperationException) when (session.Engine.State != SessionState.Ready && !session.Engine.IsDebuggerPaused)
+        { return null; }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
             if (displayedSession == session)
@@ -1024,7 +1068,10 @@ public sealed partial class MainWindow : Window
 
     private async Task RequestCompletionAsync(TextEditor editor, IReadOnlySet<CompletionResultType>? filter = null)
     {
-        if (displayedSession is not { Engine.State: SessionState.Ready } session || completion is not null || completionPending || editor.IsReadOnly) return;
+        if (displayedSession is not { } session || (session.Engine.State != SessionState.Ready && !session.Engine.IsDebuggerPaused) ||
+            session.Evaluating || completion is not null || completionPending ||
+            editor.IsReadOnly && !(editor == ScriptEditor && session.Engine.IsDebuggerPaused)) return;
+        var revision = session.DebugRevisionCounter;
         var document = editor.Document;
         var start = editor == ConsoleEditor ? session.Console.InputStart : 0;
         if (editor.CaretOffset < start) return;
@@ -1032,7 +1079,7 @@ public sealed partial class MainWindow : Window
         var text = snapshot[start..];
         var caret = editor.CaretOffset - start;
         var results = await GetCompletionAsync(session, text, caret);
-        if (results is null || displayedSession != session || editor.Document != document ||
+        if (results is null || displayedSession != session || revision != session.DebugRevisionCounter || editor.Document != document ||
             document.Text != snapshot || editor.CaretOffset != start + caret || editTarget is not null && editTarget != editor) return;
         var matches = results.Matches.Where(m => filter is null || filter.Contains(m.ResultType)).ToArray();
         if (matches.Length == 0) return;
@@ -1073,8 +1120,7 @@ public sealed partial class MainWindow : Window
         ApplyAppearance();
         ZoomSlider.Value = settings.Zoom;
         SetZoom(settings.Zoom);
-        CommandsPane.IsVisible = CommandSplitter.IsVisible = settings.ShowCommands;
-        OuterGrid.ColumnDefinitions = new(settings.ShowCommands ? "*,5,290" : "*,0,0");
+        ApplySidePaneLayout();
         var right = settings.Layout == "Right";
         var maximized = settings.Layout == "Maximized";
         PaneGrid.RowDefinitions = new(right || maximized ? "*" : "3*,5,2*");
@@ -1091,6 +1137,35 @@ public sealed partial class MainWindow : Window
         PaneSplitter.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch;
         ConsolePane.IsVisible = PaneSplitter.IsVisible = !maximized;
         UpdateMenuState();
+    }
+
+    private void ApplySidePaneLayout()
+    {
+        var showDebugger = displayedSession?.DebuggerPaneVisible == true;
+        var showCommands = settings.ShowCommands;
+        if (!sidePaneLayoutInitialized || showDebugger != debuggerDockVisible || showCommands != commandDockVisible)
+        {
+            if (sidePaneLayoutInitialized)
+            {
+                if (debuggerDockVisible) debuggerDockWidth = OuterGrid.ColumnDefinitions[Grid.GetColumn(DebuggerPane)].Width;
+                if (commandDockVisible) commandDockWidth = OuterGrid.ColumnDefinitions[Grid.GetColumn(CommandsPane)].Width;
+            }
+            Grid.SetColumn(CommandsPane, showDebugger ? 4 : 2);
+            Grid.SetColumn(CommandSplitter, showDebugger ? 3 : 1);
+            OuterGrid.ColumnDefinitions = new ColumnDefinitions
+            {
+                new() { Width = new GridLength(1, GridUnitType.Star) },
+                new() { Width = new GridLength(showDebugger || showCommands ? 5 : 0) },
+                new() { Width = showDebugger ? debuggerDockWidth : showCommands ? commandDockWidth : new GridLength(0), MinWidth = showDebugger ? 340 : 0 },
+                new() { Width = new GridLength(showDebugger && showCommands ? 5 : 0) },
+                new() { Width = showDebugger && showCommands ? commandDockWidth : new GridLength(0) }
+            };
+            debuggerDockVisible = showDebugger;
+            commandDockVisible = showCommands;
+            sidePaneLayoutInitialized = true;
+        }
+        DebuggerPane.IsVisible = DebuggerSplitter.IsVisible = showDebugger;
+        CommandsPane.IsVisible = CommandSplitter.IsVisible = showCommands;
     }
 
     private void OnZoomChanged(object? sender, RangeBaseValueChangedEventArgs e)
@@ -1300,7 +1375,7 @@ public sealed partial class MainWindow : Window
         var snapshot = settings.Copy();
         snapshot.HelpView = preferences.Copy();
         snapshot.Normalize();
-        await snapshot.SaveAsync();
+        await snapshot.SaveAsync(settingsFilePath);
         settings = snapshot;
     }
 
@@ -1446,8 +1521,9 @@ public sealed partial class MainWindow : Window
         var previousFocus = editTarget;
         var dialog = new OptionsWindow(settings, async updated =>
         {
+            updated.DebuggerSessions = settings.Copy().DebuggerSessions;
             updated.Normalize();
-            await updated.SaveAsync();
+            await updated.SaveAsync(settingsFilePath);
             settings = updated;
             ApplySettings();
             PopulateRecentMenu();
@@ -1541,7 +1617,7 @@ public sealed partial class MainWindow : Window
         {
             foreach (var session in Workbench.Sessions.ToArray())
                 if (!await CloseSessionAsync(session)) { closingInProgress = false; return; }
-            await settings.SaveAsync();
+            await settings.SaveAsync(settingsFilePath);
             closingApproved = true;
             Close();
         });
