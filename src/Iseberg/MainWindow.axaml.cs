@@ -66,6 +66,7 @@ public sealed partial class MainWindow : Window
     private bool debuggerDockVisible;
     private bool commandDockVisible;
     public WorkbenchModel Workbench { get; } = new();
+    public IseObjectModel Scripting { get; }
 
     public MainWindow() : this([]) { }
 
@@ -79,6 +80,7 @@ public sealed partial class MainWindow : Window
         if (preferences is not null) { settings = preferences.Copy(); settings.Normalize(); }
         startupFiles = args;
         InitializeComponent();
+        Scripting = new(this);
         Icon = AppIcon.Create();
         DataContext = Workbench;
         CommandForm.CommandChanged += RefreshState;
@@ -86,6 +88,7 @@ public sealed partial class MainWindow : Window
         {
             foreach (var session in e.OldItems?.OfType<SessionModel>() ?? [])
             {
+                Scripting.Remove(session);
                 DetachDebugger(session);
                 if (showCommandHandlers.Remove(session, out var handler))
                     session.Engine.ShowCommandRequested -= handler;
@@ -96,6 +99,7 @@ public sealed partial class MainWindow : Window
             }
             foreach (var session in e.NewItems?.OfType<SessionModel>() ?? [])
             {
+                session.Engine.ConfigureIseObjectModel(Scripting);
                 AttachDebugger(session);
                 Action<ShowCommandRequest> handler = request =>
                     Dispatcher.UIThread.Post(() => ShowConsoleCommand(session, request));
@@ -108,6 +112,7 @@ public sealed partial class MainWindow : Window
                 commandErrorHandlers.Add(session, errorHandler);
                 session.Engine.CommandErrorRequested += errorHandler;
             }
+            RefreshIseMenus();
         };
         ScriptEditor.Options.IndentationSize = 4;
         ScriptEditor.Options.ConvertTabsToSpaces = true;
@@ -351,6 +356,7 @@ public sealed partial class MainWindow : Window
         if (displayedSession is not null)
             displayedSession.ConsoleCaretOffset = ConsoleEditor.CaretOffset;
         displayedSession = next;
+        RefreshIseMenus();
         WatchExpression.Text = "";
         RenderDebugger();
         completionNotice = null;
@@ -1030,6 +1036,7 @@ public sealed partial class MainWindow : Window
     private void UpdateMenuState()
     {
         if (WorkbenchMenu is null) return;
+        UpdateIseMenuState(AddonsMenu);
         var state = displayedSession?.Engine.State;
         var ready = state == SessionState.Ready;
         var paused = displayedSession?.Engine.IsDebuggerPaused == true;
@@ -1596,7 +1603,7 @@ public sealed partial class MainWindow : Window
 
     private async Task<IReadOnlyList<PowerShellSnippet>> LoadSnippetsAsync(bool includeDefaults = true)
     {
-        var loaded = await SnippetCatalog.LoadAsync();
+        var loaded = displayedSession is { } session ? await session.Engine.Snippets.LoadAsync() : await SnippetCatalog.LoadAsync();
         if (loaded.Errors.Count > 0)
         {
             var message = string.Join(Environment.NewLine, loaded.Errors);
@@ -1690,6 +1697,7 @@ public sealed partial class MainWindow : Window
     private async void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Handled) return;
+        if (await HandleIseShortcutAsync(e)) return;
         var ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
         var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
         if (e.Key == Key.F10 && displayedSession?.Engine.State != SessionState.Debugging)

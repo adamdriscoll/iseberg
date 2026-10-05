@@ -127,7 +127,7 @@ public sealed class SessionModel : ObservableModel
     public string Name { get; }
     public string DisplayName => Engine.IsRemote ? $"{Name} [{Engine.RemoteComputerName}]" : Name;
     internal void RefreshRunspaceIdentity() => Changed(nameof(DisplayName));
-    public PowerShellSession Engine { get; } = new();
+    public PowerShellSession Engine { get; }
     public ObservableCollection<ScriptTab> Files { get; } = [];
     public ConsoleBuffer Console { get; } = new();
     public TextDocument ConsoleDocument => Console.Document;
@@ -160,9 +160,10 @@ public sealed class SessionModel : ObservableModel
 
     public sealed record ConsoleCompletion(string Original, string LastText, int LastCaret, int Index, CompletionSet Results);
 
-    public SessionModel(string name)
+    public SessionModel(string name, string? snippetDirectory = null)
     {
         Name = name;
+        Engine = new(snippetDirectory);
         Engine.Output += output.Enqueue;
     }
 
