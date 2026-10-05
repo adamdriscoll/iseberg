@@ -13,9 +13,22 @@ A cross-platform desktop workbench inspired by PowerShell ISE, built with Avalon
 - **Explore commands** through the Commands pane, command forms, and help.
 - **Debug scripts** with breakpoints, stepping, variable inspection, watches, and a call stack.
 - **Work remotely** through SSH or WSMan, including remote files and debugging.
+- **Extend the workbench** with a supported `$psISE` scripting subset, per-tab Add-ons menus, and ISE snippet-management commands.
 - **Make it your own** with themes, fonts, pane layouts, recovery copies, and keyboard navigation.
 
 ## Getting started
+
+### Install a package
+
+Download unsigned, self-contained packages from [GitHub Releases](https://github.com/adamdriscoll/iseberg/releases), or from the **Artifacts** section of a successful **Build and test** Actions run.
+
+| Platform | Packages | Installation |
+|---|---|---|
+| Windows x64 | MSI, ZIP | Run the MSI (administrator approval required), or extract the ZIP and launch `Iseberg.exe`. |
+| macOS Intel / Apple silicon | DMG, ZIP | Open the DMG and drag `Iseberg.app` to Applications, or extract the ZIP and move the app there. |
+| Linux x64 / ARM64 | ZIP | Extract with an archive tool that preserves executable permissions, then run `./Iseberg` in a graphical desktop. |
+
+**Packages are not signed or notarized yet.** Windows/macOS may warn or block launch according to local security policy. See [installation and updates](docs/user-guide.md#installation-and-updates) for file associations, manual updates, and verification limits.
 
 ### Run from source
 
@@ -67,7 +80,9 @@ On macOS, Command is also accepted for workbench shortcuts. See the [full shortc
 
 | Looking for... | Start here |
 |---|---|
+| Packages, file associations, and update checks | [Installation and updates](docs/user-guide.md#installation-and-updates) |
 | Console behavior, IntelliSense, and snippets | [User guide](docs/user-guide.md) |
+| `$psISE`, Add-ons menus, and snippet-management commands | [ISE scripting compatibility](docs/ise-compatibility.md) |
 | Profiles, execution policy, prompts, and native applications | [Execution and profiles](docs/user-guide.md#execution-and-profiles) / [Host and terminals](docs/user-guide.md#host-prompts-colors-and-native-terminals) |
 | Remote connections and remote files | [Remoting](docs/user-guide.md#remoting) |
 | Breakpoints, watches, and stepping | [Debugging](docs/user-guide.md#debugging) |

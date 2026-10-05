@@ -66,18 +66,21 @@ public sealed partial class MainWindow : Window
     private bool debuggerDockVisible;
     private bool commandDockVisible;
     public WorkbenchModel Workbench { get; } = new();
+    public IseObjectModel Scripting { get; }
 
     public MainWindow() : this([]) { }
 
     public MainWindow(string[] args, bool initializeOnOpen = true, UserSettings? preferences = null, string? settingsPath = null,
-        string? recoveryDirectory = null)
+        ReleaseUpdateChecker? updateChecker = null, string? recoveryDirectory = null)
     {
+        releaseUpdateChecker = updateChecker ?? new ReleaseUpdateChecker(updateClient);
         settingsFilePath = settingsPath;
         workbenchStore = new(settingsPath is null ? null : settingsPath + ".workbench.json");
         recovery = new(recoveryDirectory ?? (settingsPath is null ? null : settingsPath + ".recovery"));
         if (preferences is not null) { settings = preferences.Copy(); settings.Normalize(); }
         startupFiles = args;
         InitializeComponent();
+        Scripting = new(this);
         Icon = AppIcon.Create();
         DataContext = Workbench;
         CommandForm.CommandChanged += RefreshState;
@@ -85,6 +88,7 @@ public sealed partial class MainWindow : Window
         {
             foreach (var session in e.OldItems?.OfType<SessionModel>() ?? [])
             {
+                Scripting.Remove(session);
                 DetachDebugger(session);
                 if (showCommandHandlers.Remove(session, out var handler))
                     session.Engine.ShowCommandRequested -= handler;
@@ -95,6 +99,7 @@ public sealed partial class MainWindow : Window
             }
             foreach (var session in e.NewItems?.OfType<SessionModel>() ?? [])
             {
+                session.Engine.ConfigureIseObjectModel(Scripting);
                 AttachDebugger(session);
                 Action<ShowCommandRequest> handler = request =>
                     Dispatcher.UIThread.Post(() => ShowConsoleCommand(session, request));
@@ -107,6 +112,7 @@ public sealed partial class MainWindow : Window
                 commandErrorHandlers.Add(session, errorHandler);
                 session.Engine.CommandErrorRequested += errorHandler;
             }
+            RefreshIseMenus();
         };
         ScriptEditor.Options.IndentationSize = 4;
         ScriptEditor.Options.ConvertTabsToSpaces = true;
@@ -268,6 +274,10 @@ public sealed partial class MainWindow : Window
         persistenceTimer.Start();
         await SaveWorkbenchAsync();
         ScriptEditor.TextArea.Focus();
+        startupComplete = true;
+        await OpenActivatedFilesAsync();
+        if (settings.CheckForUpdates)
+            Dispatcher.UIThread.Post(async () => await CheckForUpdatesAsync(automatic: true));
     }
 
     private DebugLocation? CurrentFileDebugLocation() =>
@@ -346,6 +356,7 @@ public sealed partial class MainWindow : Window
         if (displayedSession is not null)
             displayedSession.ConsoleCaretOffset = ConsoleEditor.CaretOffset;
         displayedSession = next;
+        RefreshIseMenus();
         WatchExpression.Text = "";
         RenderDebugger();
         completionNotice = null;
@@ -438,7 +449,7 @@ public sealed partial class MainWindow : Window
         else displayedSession?.FlushOutput();
         StatusText.Text = state switch
         {
-            SessionState.Ready => completionNotice ?? UiText.Get("Ready"),
+            SessionState.Ready => completionNotice ?? updateNotice ?? UiText.Get("Ready"),
             SessionState.Running => UiText.Get(displayedSession?.EditingBreakpoints == true ? "PauseForBreakpointEdit" : "Running"),
             SessionState.Debugging => string.Format(UiText.Get("DebugStatus"), displayedSession?.DebugLocation?.Line),
             SessionState.NestedPrompt => UiText.Get("NestedPromptStatus"),
@@ -608,10 +619,11 @@ public sealed partial class MainWindow : Window
                     await session.Engine.ExecuteAsync("Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force");
                 break;
             case "Options": await OptionsAsync(); break;
+            case "CheckForUpdates": await CheckForUpdatesAsync(automatic: false); break;
             case "Print": await PrintScriptAsync(); break;
             case "About":
                 await Dialogs.ShowTextAsync(this, "About Iseberg",
-                    $"Iseberg\nA cross-platform PowerShell ISE-style editor and terminal.\n\nPowerShell {session?.Engine.Version}\nAvalonia + AvaloniaEdit + PowerShell SDK\n\nSee README.md for implemented behavior and GitHub issues for remaining work.");
+                    $"Iseberg {ApplicationVersion}\nA cross-platform PowerShell ISE-style editor and terminal.\n\nPowerShell {session?.Engine.Version}\nAvalonia + AvaloniaEdit + PowerShell SDK\n\nSee README.md for implemented behavior and GitHub issues for remaining work.");
                 break;
         }
         if (action is "Copy" or "Cut" or "Paste" or "Undo" or "Redo" or "SelectAll") FocusInput(editTarget);
@@ -1002,7 +1014,7 @@ public sealed partial class MainWindow : Window
         {
             if (item == RecentMenu) { item.Header = UiText.Get("RecentFiles"); continue; }
             if (item.Tag is not string action) continue;
-            var key = action switch { "Top" => "PaneTop", "Right" => "PaneRight", "Maximized" => "PaneMaximized", "Options" => "OptionsMenu", _ => action };
+            var key = action switch { "Top" => "PaneTop", "Right" => "PaneRight", "Maximized" => "PaneMaximized", "Options" => "OptionsMenu", "CheckForUpdates" => "CheckForUpdatesMenu", _ => action };
             item.Header = UiText.Get(key);
             item.Icon = new ToolbarIcon { Kind = action };
             if (action is "Top" or "Right" or "Maximized" or "Commands" or "LineNumbers" or "WordWrap" or "DebuggerPanes")
@@ -1024,6 +1036,7 @@ public sealed partial class MainWindow : Window
     private void UpdateMenuState()
     {
         if (WorkbenchMenu is null) return;
+        UpdateIseMenuState(AddonsMenu);
         var state = displayedSession?.Engine.State;
         var ready = state == SessionState.Ready;
         var paused = displayedSession?.Engine.IsDebuggerPaused == true;
@@ -1063,6 +1076,7 @@ public sealed partial class MainWindow : Window
                 "Reload" => displayedFile?.File.Path is not null && ready && !closingInProgress,
                 "Undo" or "Redo" or "Cut" or "Copy" or "Paste" or "SelectAll" => CanEdit(action),
                 "Replace" => !paused,
+                "CheckForUpdates" => !checkingForUpdates,
                 _ => true
             };
         }
@@ -1589,7 +1603,7 @@ public sealed partial class MainWindow : Window
 
     private async Task<IReadOnlyList<PowerShellSnippet>> LoadSnippetsAsync(bool includeDefaults = true)
     {
-        var loaded = await SnippetCatalog.LoadAsync();
+        var loaded = displayedSession is { } session ? await session.Engine.Snippets.LoadAsync() : await SnippetCatalog.LoadAsync();
         if (loaded.Errors.Count > 0)
         {
             var message = string.Join(Environment.NewLine, loaded.Errors);
@@ -1683,6 +1697,7 @@ public sealed partial class MainWindow : Window
     private async void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Handled) return;
+        if (await HandleIseShortcutAsync(e)) return;
         var ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
         var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
         if (e.Key == Key.F10 && displayedSession?.Engine.State != SessionState.Debugging)

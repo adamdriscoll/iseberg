@@ -90,11 +90,12 @@
         <MenuItem Header="_Continue" InputGesture="F5" Tag="Continue" Click="OnAction" />
         <MenuItem Header="_Stop Debugger" InputGesture="Shift+F5" Tag="Stop" Click="OnAction" />
       </MenuItem>
-      <MenuItem Header="_Add-ons">
+      <MenuItem x:Name="AddonsMenu" Header="_Add-ons">
         <MenuItem Header="Show _Commands" Tag="Commands" Click="OnAction" />
       </MenuItem>
       <MenuItem Header="_Help">
         <MenuItem Header="PowerShell Command _Help" InputGesture="F1" Tag="Help" Click="OnAction" />
+        <MenuItem Header="{local:Ui CheckForUpdatesMenu}" Tag="CheckForUpdates" Click="OnAction" />
         <MenuItem Header="_About Iseberg" Tag="About" Click="OnAction" />
       </MenuItem>
     </Menu>
@@ -242,7 +243,8 @@
     </Grid>
     <Border Grid.Row="4" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource ControlBrush}">
       <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="5,2">
-        <TextBlock x:Name="StatusText" Text="{local:Ui Starting}" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite" />
+        <TextBlock x:Name="StatusText" Text="{local:Ui Starting}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                   ToolTip.Tip="{Binding Text, RelativeSource={RelativeSource Self}}" AutomationProperties.LiveSetting="Polite" />
         <TextBlock Grid.Column="1" x:Name="CaretText" Text="Ln 1  Col 1" Width="125" VerticalAlignment="Center" />
         <TextBlock Grid.Column="2" x:Name="EncodingText" Text="UTF-8" Width="90" VerticalAlignment="Center" />
         <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="6">

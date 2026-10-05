@@ -1,0 +1,71 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Iseberg" Manufacturer="Adam Driscoll" Version="$(var.Version)"
+           UpgradeCode="B5AD4C4F-0A2C-4B9E-8291-D1E981275656" Scope="perMachine" Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Iseberg is already installed."
+                  AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="INSTALLLEVEL" Value="1" />
+    <ui:WixUI Id="WixUI_FeatureTree" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(sys.SOURCEFILEDIR)License.rtf" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Iseberg" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="IsebergMenuFolder" Name="Iseberg" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="Payload" Directory="INSTALLFOLDER">
+      <Component Id="Executable" Guid="*">
+        <File Id="IsebergExecutable" Source="$(var.PublishDir)\Iseberg.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="IsebergMenuFolder" Name="Iseberg" Advertise="yes" WorkingDirectory="INSTALLFOLDER" />
+        </File>
+        <RemoveFolder Id="RemoveStartMenuFolder" Directory="IsebergMenuFolder" On="uninstall" />
+      </Component>
+      <Component Id="AppRegistration" Guid="*">
+        <RegistryValue Root="HKLM" Key="Software\RegisteredApplications" Name="Iseberg" Type="string" Value="Software\Iseberg\Capabilities" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\Iseberg\Capabilities" Name="ApplicationName" Type="string" Value="Iseberg" />
+        <RegistryValue Root="HKLM" Key="Software\Iseberg\Capabilities" Name="ApplicationDescription" Type="string" Value="PowerShell script editor" />
+      </Component>
+      <Files Include="$(var.PublishDir)\**">
+        <Exclude Files="$(var.PublishDir)\Iseberg.exe" />
+      </Files>
+    </ComponentGroup>
+    <ComponentGroup Id="PS1Association" Directory="INSTALLFOLDER">
+      <Component Id="PS1Registration" Guid="*">
+        <RegistryValue Root="HKLM" Key="Software\Classes\Iseberg.ps1" Type="string" Value="PowerShell script" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Iseberg.ps1\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]Iseberg.exe&quot; &quot;%1&quot;" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.ps1\OpenWithProgids" Name="Iseberg.ps1" Type="string" Value="" />
+        <RegistryValue Root="HKLM" Key="Software\Iseberg\Capabilities\FileAssociations" Name=".ps1" Type="string" Value="Iseberg.ps1" />
+      </Component>
+    </ComponentGroup>
+    <ComponentGroup Id="PSM1Association" Directory="INSTALLFOLDER">
+      <Component Id="PSM1Registration" Guid="*">
+        <RegistryValue Root="HKLM" Key="Software\Classes\Iseberg.psm1" Type="string" Value="PowerShell module" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Iseberg.psm1\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]Iseberg.exe&quot; &quot;%1&quot;" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.psm1\OpenWithProgids" Name="Iseberg.psm1" Type="string" Value="" />
+        <RegistryValue Root="HKLM" Key="Software\Iseberg\Capabilities\FileAssociations" Name=".psm1" Type="string" Value="Iseberg.psm1" />
+      </Component>
+    </ComponentGroup>
+    <ComponentGroup Id="PSD1Association" Directory="INSTALLFOLDER">
+      <Component Id="PSD1Registration" Guid="*">
+        <RegistryValue Root="HKLM" Key="Software\Classes\Iseberg.psd1" Type="string" Value="PowerShell data file" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Iseberg.psd1\shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]Iseberg.exe&quot; &quot;%1&quot;" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.psd1\OpenWithProgids" Name="Iseberg.psd1" Type="string" Value="" />
+        <RegistryValue Root="HKLM" Key="Software\Iseberg\Capabilities\FileAssociations" Name=".psd1" Type="string" Value="Iseberg.psd1" />
+      </Component>
+    </ComponentGroup>
+    <Feature Id="Application" Title="Iseberg" Level="1" AllowAbsent="no" Description="The application and Start menu shortcut.">
+      <ComponentGroupRef Id="Payload" />
+    </Feature>
+    <Feature Id="AssociatePS1" Title="Associate .ps1" Level="2" Description="Register Iseberg in Open with and Default apps for PowerShell scripts.">
+      <ComponentGroupRef Id="PS1Association" />
+    </Feature>
+    <Feature Id="AssociatePSM1" Title="Associate .psm1" Level="2" Description="Register Iseberg in Open with and Default apps for PowerShell modules.">
+      <ComponentGroupRef Id="PSM1Association" />
+    </Feature>
+    <Feature Id="AssociatePSD1" Title="Associate .psd1" Level="2" Description="Register Iseberg in Open with and Default apps for PowerShell data files.">
+      <ComponentGroupRef Id="PSD1Association" />
+    </Feature>
+  </Package>
+</Wix>

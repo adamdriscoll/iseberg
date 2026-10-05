@@ -33,7 +33,7 @@ The default build includes PowerShell and must remain untrimmed. Release builds 
 
 The test suite exercises real PowerShell execution, session isolation, formatted output, input/cancellation, errors, command metadata, completion, script paths, breakpoints/stepping, file encodings, dirty state, parser folding, settings, and headless desktop construction.
 
-Installation checks require compatible PowerShell as described under [compact distribution requirements](#compact-single-file-distribution). Remoting tests also require `pwsh` on `PATH`: they launch isolated child processes and connect over PowerShell's named-pipe remoting transport, without needing an SSH/WSMan server.
+Compact installation checks require compatible PowerShell as described under [compact distribution requirements](#compact-single-file-distribution). Remoting tests require `pwsh` on `PATH`: they launch isolated child processes and connect over PowerShell's named-pipe remoting transport, without needing an SSH/WSMan server.
 
 Remoting tests exercise interactive `Enter-PSSession`, remote files, completion, debugger inspection/source navigation, stopping, and connection loss. SSH/WSMan authentication and external-server configuration still need environment-specific verification.
 
@@ -51,6 +51,28 @@ dotnet publish src/Iseberg -c Release -r win-x64 --self-contained true -o ./publ
 ```
 
 Use `linux-x64`, `linux-arm64`, `osx-x64`, or `osx-arm64` as appropriate. The full distribution must remain untrimmed.
+
+### Platform packages
+
+To create distribution packages, use PowerShell 7 on the corresponding OS:
+
+```powershell
+./packaging/Package.ps1 -Runtime win-x64 -Version 1.2.3
+```
+
+The script publishes self-contained files and writes versioned packages to `publish/artifacts/<runtime>`. Windows restores the pinned WiX tool; macOS uses `hdiutil` and `zip`; Linux uses `zip`. Each run requires fresh output directories.
+
+macOS ZIPs contain the full `.app` bundle; Unix ZIPs preserve executable permissions. The original `dotnet publish` path is unchanged.
+
+### Release workflow
+
+CI builds packages for all five runtimes after the existing platform tests, using `0.0.<run-number>-ci` versions, and uploads the MSI/DMG/ZIP files as Actions artifacts.
+
+**Release packages** runs when a version tag (`v1.2.3` or `1.2.3`, optionally with a prerelease suffix) is pushed or a release is published. It builds from that tag, stamps the application with the release version, and attaches the same packages directly to the release after all packaging jobs succeed.
+
+A tag push creates a release if needed; prerelease tags create prereleases. Publishing an existing release preserves its title/body. The workflow needs `contents: write` only for uploading/creating releases.
+
+Version numbers must fit MSI limits (major/minor at most 255, patch at most 65535). Release assets use `Iseberg-<version>-<runtime>.<extension>`, which the update checker also uses.
 
 ### Compact single-file distribution
 
@@ -75,7 +97,7 @@ Compact trimming is deliberately partial: Avalonia's trim-compatible libraries a
 
 At launch the single file extracts its bundled assemblies/native libraries into .NET's extraction cache. The cache must be writable; set `DOTNET_BUNDLE_EXTRACT_BASE_DIR` to change its location. Keep the selected PowerShell installation available while Iseberg runs. All-users profile paths come from that engine installation; user profiles remain opt-in.
 
-### ZIP packaging and CI artifacts
+### Compact ZIP packaging and CI artifacts
 
 To create both ZIP distributions on a matching OS/architecture with compatible PowerShell installed:
 
@@ -83,10 +105,7 @@ To create both ZIP distributions on a matching OS/architecture with compatible P
 ./build/Publish.ps1 -Runtime win-x64
 ```
 
-CI publishes and checks both variants natively for `win-x64`, `linux-x64`, `linux-arm64`, `osx-x64`, and `osx-arm64`. Each platform artifact contains:
-
-- `Iseberg-<runtime>.zip`: bundled PowerShell.
-- `Iseberg-<runtime>-compact.zip`: one executable, installed PowerShell required.
+CI also builds and checks compact distributions natively for `win-x64`, `linux-x64`, `linux-arm64`, `osx-x64`, and `osx-arm64`, uploading their ZIPs as separate Actions artifacts. Each compact-package platform artifact contains `Iseberg-<runtime>-compact.zip` (one executable, installed PowerShell required).
 
 Packaging verifies the compact ZIP is smaller and preserves Unix executable permissions.
 

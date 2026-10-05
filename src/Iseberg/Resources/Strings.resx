@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="CheckForUpdates" xml:space="preserve"><value>Check for updates at startup</value></data>
+  <data name="CheckForUpdatesMenu" xml:space="preserve"><value>Check for _Updates...</value></data>
+  <data name="Updates" xml:space="preserve"><value>Iseberg updates</value></data>
+  <data name="NoUpdateAvailable" xml:space="preserve"><value>No newer stable release is available.</value></data>
+  <data name="DownloadUpdate" xml:space="preserve"><value>Download update</value></data>
+  <data name="ViewRelease" xml:space="preserve"><value>View release</value></data>
+  <data name="Later" xml:space="preserve"><value>Later</value></data>
+  <data name="DisableUpdateChecks" xml:space="preserve"><value>Disable checks</value></data>
+  <data name="UpdateAvailable" xml:space="preserve"><value>Iseberg {0} is available (current version: {1}). Download and install it manually? Save your work and close Iseberg before installing or replacing its files. Portable builds can use the ZIP on the release page.</value></data>
+  <data name="UpdateWithoutPackage" xml:space="preserve"><value>Iseberg {0} is available (current version: {1}), but no package for this platform is uploaded yet. Open the release page?</value></data>
+  <data name="UpdateCheckFailed" xml:space="preserve"><value>Could not check for updates or open the download. Iseberg can still be used; retry from Help &gt; Check for Updates. {0}</value></data>
+  <data name="UpdateDownloadFailed" xml:space="preserve"><value>The release download could not be opened in your browser.</value></data>
   <data name="Encoding" xml:space="preserve"><value>File _Encoding...</value></data>
   <data name="EncodingTitle" xml:space="preserve"><value>File Encoding</value></data>
   <data name="EncodingHint" xml:space="preserve"><value>Convert changes the encoding used on the next save. Reload decodes the file again and requires confirmation before discarding edits.</value></data>

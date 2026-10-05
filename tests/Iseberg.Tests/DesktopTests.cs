@@ -519,16 +519,32 @@ public sealed class DesktopTests
         }
     }
 
+    [AvaloniaFact]
+    public async Task UiWaitDoesNotAcceptTransientStateBeforeQueuedUpdates()
+    {
+        var ready = true;
+        var update = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+        {
+            ready = false;
+            await Task.Delay(50);
+            ready = true;
+            update.SetResult();
+        });
+        try { await WaitForUiAsync(() => ready); }
+        finally { await update.Task; }
+    }
+
     private static async Task WaitForUiAsync(Func<bool> condition, TimeSpan? timeout = null)
     {
         var deadline = DateTime.UtcNow.Add(timeout ?? TimeSpan.FromSeconds(10));
-        while (!condition() && DateTime.UtcNow < deadline)
+        while (true)
         {
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            if (condition()) return;
+            Assert.True(DateTime.UtcNow < deadline, "The debugger UI did not reach the expected state.");
             await Task.Delay(10);
         }
-        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-        Assert.True(condition(), "The debugger UI did not reach the expected state.");
     }
 
     [AvaloniaFact]

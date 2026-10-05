@@ -4,16 +4,42 @@
 
 ## Contents
 
+- [Installation and updates](#installation-and-updates)
 - [Workbench and keyboard shortcuts](#workbench-and-keyboard-shortcuts)
 - [Console and PowerShell tabs](#console-and-powershell-tabs)
 - [Editing scripts](#editing-scripts)
 - [Snippets](#snippets)
+- [ISE scripting and Add-ons](#ise-scripting-and-add-ons)
 - [Execution and profiles](#execution-and-profiles)
 - [Host prompts, colors, and native terminals](#host-prompts-colors-and-native-terminals)
 - [Remoting](#remoting)
 - [Debugging](#debugging)
 - [Files, sessions, and printing](#files-sessions-and-printing)
 - [Options and accessibility](#options-and-accessibility)
+
+## Installation and updates
+
+### Packages and file associations
+
+Download unsigned, self-contained packages from [GitHub Releases](https://github.com/adamdriscoll/iseberg/releases), or from the **Artifacts** section of a successful **Build and test** Actions run. See the [README installation table](../README.md#install-a-package) for platform packages and launch instructions.
+
+The Windows MSI installs to Program Files with a Start menu shortcut. Its feature-selection page offers `.ps1`, `.psm1`, and `.psd1` registrations independently, off by default. Selecting one adds Iseberg to **Open with** and **Default apps**; choose Iseberg there to make it the default editor. Existing defaults and Windows' protected user choices are not overwritten.
+
+MSI upgrades retain selected features; uninstall removes installed files, shortcuts, and registrations but leaves user settings/recovery data.
+
+The macOS app declares all three file types for Finder's **Open With**. Use **Get Info > Open with > Change All** to set a default if desired. Associated-file launches open documents for editing, never execute them. Windows/Linux ZIPs do not register file associations.
+
+**Packages are not signed or notarized yet:** Windows/macOS may warn or block launch according to local security policy. Native install/uninstall and desktop interaction across all platforms remain outside this implementation's verification scope.
+
+### Release checks and manual updates
+
+After startup, Iseberg checks the public GitHub project for a newer **stable** release in the background, with a ten-second timeout. A prompt opens the matching MSI, DMG, or ZIP download in your browser for **manual installation**, or the release page if that architecture's package is not available.
+
+Save your work and close Iseberg before installing; portable users can download the ZIP from the release page and replace their extracted app. Nothing is downloaded or installed without your action. Prereleases are not offered automatically.
+
+Disable automatic checks in **Tools > Options > General Settings > Check for updates at startup**, or choose **Disable checks** in the update prompt. **Help > Check for Updates** remains available for manual checks.
+
+No releases is a normal result; network/API failures are logged and shown non-modally in the status bar for automatic checks (manual checks show a message), without blocking startup or editing.
 
 ## Workbench and keyboard shortcuts
 
@@ -77,7 +103,15 @@ Custom files are discovered recursively in `Iseberg/Snippets` under local applic
 
 ### Legacy templates
 
-Workflow and classic DSC entries are explicitly labeled as Windows PowerShell 5.1 templates. They are available for authoring legacy scripts, but this PowerShell 7 host does not add support for executing legacy workflow/configuration syntax. The catalog does not implement `$psISE` or the ISE snippet-management cmdlets.
+Workflow and classic DSC entries are explicitly labeled as Windows PowerShell 5.1 templates. They are available for authoring legacy scripts, but this PowerShell 7 host does not add support for executing legacy workflow/configuration syntax.
+
+## ISE scripting and Add-ons
+
+Local PowerShell tabs expose a supported `$psISE` subset for live script-file/editor operations, tab selection, and per-tab custom Add-ons menus. Script-block menu actions and shortcuts run in their owning PowerShell session, including closure bindings, and participate in normal execution/debugging/Stop behavior.
+
+`New-IseSnippet`, `Get-IseSnippet`, and `Import-IseSnippet` provide snippet-management compatibility; cmdlet imports are session-only and appear in that tab's Ctrl+J picker.
+
+See [ISE scripting compatibility](ise-compatibility.md) for member signatures, profile/menu examples, snippet workflows, and explicit unsupported boundaries. This is not binary ISE compatibility: WPF tools are unsupported on **all platforms, including Windows**, and cannot run natively on Linux/macOS. The PowerShell 7/Avalonia architecture is unchanged.
 
 ## Execution and profiles
 

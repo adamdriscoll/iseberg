@@ -18,6 +18,8 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     private DebuggerResumeAction resumeAction;
     private bool disposed;
     private bool stopRequested;
+    private object? iseObjectModel;
+    public IseSnippetService Snippets { get; }
 
     public event Action<OutputEntry>? Output;
     public event Action<SessionState>? StateChanged;
@@ -30,13 +32,15 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     public SessionState State { get; private set; } = SessionState.Starting;
     public string Prompt { get; private set; } = "PS> ";
     public string Version => PSVersionInfo.PSVersion.ToString();
+    public Guid LocalRunspaceId => localRunspace.InstanceId;
 
-    public PowerShellSession()
+    public PowerShellSession(string? snippetDirectory = null)
     {
+        Snippets = new(snippetDirectory);
         host = new WorkbenchHost(entry => Output?.Invoke(entry), ReadInput,
             update => ProgressChanged?.Invoke(update), () => ConsoleCleared?.Invoke(), ReadShowCommand,
             () => runspace, () => IsRunspacePushed, remote => PushRunspace(remote, false), PopRunspace,
-            EnterNestedPrompt, ExitNestedPrompt, ReadCommandError);
+            EnterNestedPrompt, ExitNestedPrompt, ReadCommandError, Snippets);
         var initialState = InitialSessionState.CreateDefault2();
         // The default Unix function clears a terminal instead of this graphical host.
         initialState.Commands.Remove("Clear-Host", typeof(SessionStateFunctionEntry));
@@ -57,6 +61,9 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         initialState.Commands.Add(new SessionStateCmdletEntry("Get-ExecutionPolicy", typeof(Microsoft.PowerShell.Commands.GetExecutionPolicyCommand), null));
         initialState.Commands.Add(new SessionStateCmdletEntry("Show-IsebergCommand", typeof(ShowCommandCommand), null));
         initialState.Commands.Add(new SessionStateCmdletEntry("Start-IsebergTerminal", typeof(StartTerminalCommand), null));
+        initialState.Commands.Add(new SessionStateCmdletEntry("New-IseSnippet", typeof(NewIseSnippetCommand), null));
+        initialState.Commands.Add(new SessionStateCmdletEntry("Get-IseSnippet", typeof(GetIseSnippetCommand), null));
+        initialState.Commands.Add(new SessionStateCmdletEntry("Import-IseSnippet", typeof(ImportIseSnippetCommand), null));
         // A function keeps precedence when Utility is auto-imported by commands such as Get-Help.
         initialState.Commands.Remove("Show-Command", typeof(SessionStateFunctionEntry));
         initialState.Commands.Add(new SessionStateFunctionEntry("Show-Command", """
@@ -75,6 +82,22 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         runspace.ThreadOptions = PSThreadOptions.ReuseThread;
         if (OperatingSystem.IsWindows())
             runspace.ApartmentState = ApartmentState.STA;
+    }
+
+    public void ConfigureIseObjectModel(object model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        if (!gate.Wait(0)) throw new InvalidOperationException("Configure the ISE object model before executing commands.");
+        try
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (State is not (SessionState.Starting or SessionState.Ready))
+                throw new InvalidOperationException("Configure the ISE object model before executing commands.");
+            iseObjectModel = model;
+            if (localRunspace.RunspaceStateInfo.State == RunspaceState.Opened)
+                localRunspace.SessionStateProxy.SetVariable("psISE", model);
+        }
+        finally { gate.Release(); }
     }
 
     public async Task InitializeAsync()
@@ -100,6 +123,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
                 profile.Properties.Add(new PSNoteProperty("AllUsersCurrentHost", Path.Combine(engineHome, "Iseberg_profile.ps1")));
                 profile.Properties.Add(new PSNoteProperty("AllUsersAllHosts", Path.Combine(engineHome, "profile.ps1")));
                 runspace.SessionStateProxy.SetVariable("PROFILE", profile);
+                if (iseObjectModel is not null) runspace.SessionStateProxy.SetVariable("psISE", iseObjectModel);
                 RefreshPrompt();
             });
             SetState(SessionState.Ready);
@@ -107,7 +131,16 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         finally { gate.Release(); }
     }
 
-    public async Task ExecuteAsync(string script, string? filePath = null)
+    public Task ExecuteAsync(string script, string? filePath = null) => ExecuteAsync(script, filePath, null);
+
+    public Task ExecuteMenuActionAsync(ScriptBlock action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        if (IsRunspacePushed) throw new PSNotSupportedException("ISE Add-ons menu actions require their original local runspace. Exit the remote session first.");
+        return ExecuteAsync("ISE Add-ons menu action", null, action);
+    }
+
+    private async Task ExecuteAsync(string script, string? filePath, ScriptBlock? action)
     {
         if (!await gate.WaitAsync(0))
             throw new InvalidOperationException("This PowerShell tab is busy.");
@@ -130,7 +163,10 @@ public sealed partial class PowerShellSession : IAsyncDisposable
                 using var shell = CreateShell();
                 try
                 {
-                    if (filePath is null)
+                    if (action is not null)
+                        // Keep the original block, including module/session state and GetNewClosure().
+                        shell.AddScript(". $args[0]", useLocalScope: false).AddArgument(action);
+                    else if (filePath is null)
                         shell.AddScript(script, useLocalScope: false);
                     else
                         shell.AddScript(". '" + filePath.Replace("'", "''") + "'", useLocalScope: false);
