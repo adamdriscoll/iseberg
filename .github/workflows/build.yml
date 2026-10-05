@@ -20,6 +20,7 @@ jobs:
           - os: macos-latest
             runtime: osx-arm64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -28,10 +29,21 @@ jobs:
       - name: Install matching PowerShell for tests
         shell: pwsh
         run: ./build/Install-TestPowerShell.ps1 -Runtime '${{ matrix.runtime }}'
-      - run: dotnet test Iseberg.slnx -c Release --verbosity minimal
+      - run: dotnet test Iseberg.slnx -c Release --verbosity minimal --logger trx --results-directory TestResults --blame-hang-timeout 3m --blame-hang-dump-type none
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: TestResults/
+          if-no-files-found: ignore
       - run: dotnet publish src/Iseberg -c Release --no-restore -o publish
-
   package:
+    needs: test
+    uses: ./.github/workflows/package.yml
+    with:
+      version: 0.0.${{ github.run_number }}-ci
+  compact-package:
     needs: test
     strategy:
       fail-fast: false
@@ -61,6 +73,6 @@ jobs:
         run: ./build/Publish.ps1 -Runtime '${{ matrix.runtime }}'
       - uses: actions/upload-artifact@v4
         with:
-          name: Iseberg-${{ matrix.runtime }}
-          path: publish/*.zip
+          name: Iseberg-${{ matrix.runtime }}-compact
+          path: publish/*-compact.zip
           if-no-files-found: error

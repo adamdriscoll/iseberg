@@ -1,0 +1,50 @@
+name: Package
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            runtime: win-x64
+          - os: ubuntu-latest
+            runtime: linux-x64
+          - os: ubuntu-latest
+            runtime: linux-arm64
+          - os: macos-latest
+            runtime: osx-x64
+          - os: macos-latest
+            runtime: osx-arm64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build unsigned packages
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+          PACKAGE_RUNTIME: ${{ matrix.runtime }}
+        run: ./packaging/Package.ps1 -Runtime $env:PACKAGE_RUNTIME -Version $env:PACKAGE_VERSION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Iseberg-${{ inputs.version }}-${{ matrix.runtime }}
+          path: |
+            publish/artifacts/${{ matrix.runtime }}/*.zip
+            publish/artifacts/${{ matrix.runtime }}/*.msi
+            publish/artifacts/${{ matrix.runtime }}/*.dmg
+          if-no-files-found: error

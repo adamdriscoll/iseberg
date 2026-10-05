@@ -7,3 +7,4 @@ TestResults/
 *.suo
 *.log
 publish/
+.wix/

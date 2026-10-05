@@ -70,8 +70,9 @@ public sealed partial class MainWindow : Window
     public MainWindow() : this([]) { }
 
     public MainWindow(string[] args, bool initializeOnOpen = true, UserSettings? preferences = null, string? settingsPath = null,
-        string? recoveryDirectory = null)
+        ReleaseUpdateChecker? updateChecker = null, string? recoveryDirectory = null)
     {
+        releaseUpdateChecker = updateChecker ?? new ReleaseUpdateChecker(updateClient);
         settingsFilePath = settingsPath;
         workbenchStore = new(settingsPath is null ? null : settingsPath + ".workbench.json");
         recovery = new(recoveryDirectory ?? (settingsPath is null ? null : settingsPath + ".recovery"));
@@ -268,6 +269,10 @@ public sealed partial class MainWindow : Window
         persistenceTimer.Start();
         await SaveWorkbenchAsync();
         ScriptEditor.TextArea.Focus();
+        startupComplete = true;
+        await OpenActivatedFilesAsync();
+        if (settings.CheckForUpdates)
+            Dispatcher.UIThread.Post(async () => await CheckForUpdatesAsync(automatic: true));
     }
 
     private DebugLocation? CurrentFileDebugLocation() =>
@@ -438,7 +443,7 @@ public sealed partial class MainWindow : Window
         else displayedSession?.FlushOutput();
         StatusText.Text = state switch
         {
-            SessionState.Ready => completionNotice ?? UiText.Get("Ready"),
+            SessionState.Ready => completionNotice ?? updateNotice ?? UiText.Get("Ready"),
             SessionState.Running => UiText.Get(displayedSession?.EditingBreakpoints == true ? "PauseForBreakpointEdit" : "Running"),
             SessionState.Debugging => string.Format(UiText.Get("DebugStatus"), displayedSession?.DebugLocation?.Line),
             SessionState.NestedPrompt => UiText.Get("NestedPromptStatus"),
@@ -608,10 +613,11 @@ public sealed partial class MainWindow : Window
                     await session.Engine.ExecuteAsync("Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force");
                 break;
             case "Options": await OptionsAsync(); break;
+            case "CheckForUpdates": await CheckForUpdatesAsync(automatic: false); break;
             case "Print": await PrintScriptAsync(); break;
             case "About":
                 await Dialogs.ShowTextAsync(this, "About Iseberg",
-                    $"Iseberg\nA cross-platform PowerShell ISE-style editor and terminal.\n\nPowerShell {session?.Engine.Version}\nAvalonia + AvaloniaEdit + PowerShell SDK\n\nSee README.md for implemented behavior and GitHub issues for remaining work.");
+                    $"Iseberg {ApplicationVersion}\nA cross-platform PowerShell ISE-style editor and terminal.\n\nPowerShell {session?.Engine.Version}\nAvalonia + AvaloniaEdit + PowerShell SDK\n\nSee README.md for implemented behavior and GitHub issues for remaining work.");
                 break;
         }
         if (action is "Copy" or "Cut" or "Paste" or "Undo" or "Redo" or "SelectAll") FocusInput(editTarget);
@@ -1002,7 +1008,7 @@ public sealed partial class MainWindow : Window
         {
             if (item == RecentMenu) { item.Header = UiText.Get("RecentFiles"); continue; }
             if (item.Tag is not string action) continue;
-            var key = action switch { "Top" => "PaneTop", "Right" => "PaneRight", "Maximized" => "PaneMaximized", "Options" => "OptionsMenu", _ => action };
+            var key = action switch { "Top" => "PaneTop", "Right" => "PaneRight", "Maximized" => "PaneMaximized", "Options" => "OptionsMenu", "CheckForUpdates" => "CheckForUpdatesMenu", _ => action };
             item.Header = UiText.Get(key);
             item.Icon = new ToolbarIcon { Kind = action };
             if (action is "Top" or "Right" or "Maximized" or "Commands" or "LineNumbers" or "WordWrap" or "DebuggerPanes")
@@ -1063,6 +1069,7 @@ public sealed partial class MainWindow : Window
                 "Reload" => displayedFile?.File.Path is not null && ready && !closingInProgress,
                 "Undo" or "Redo" or "Cut" or "Copy" or "Paste" or "SelectAll" => CanEdit(action),
                 "Replace" => !paused,
+                "CheckForUpdates" => !checkingForUpdates,
                 _ => true
             };
         }
