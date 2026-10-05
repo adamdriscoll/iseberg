@@ -33,15 +33,11 @@ public sealed partial class PowerShellSession
             remote = RunspaceFactory.CreateRunspace(connection, host, TypeTable.LoadDefaultTypeFiles());
             lock (sync) connectingRunspace = remote;
             using var registration = cancellationToken.Register(remote.CloseAsync);
-            System.Diagnostics.Trace.TraceInformation("[DEBUG-ci-remote-save] opening remote runspace");
             await Task.Run(remote.Open, cancellationToken);
-            System.Diagnostics.Trace.TraceInformation("[DEBUG-ci-remote-save] remote runspace opened");
             cancellationToken.ThrowIfCancellationRequested();
             PushRunspace(remote, true);
-            System.Diagnostics.Trace.TraceInformation("[DEBUG-ci-remote-save] remote runspace pushed");
             remote = null;
             await Task.Run(RefreshPrompt);
-            System.Diagnostics.Trace.TraceInformation("[DEBUG-ci-remote-save] remote prompt refreshed");
         }
         finally
         {
@@ -83,9 +79,7 @@ public sealed partial class PowerShellSession
             if (remote.RunspaceStateInfo.State != RunspaceState.Opened)
                 throw new InvalidOperationException("Only an opened runspace can be pushed.");
             owned |= HostOwnsRunspace(remote);
-            System.Diagnostics.Trace.TraceInformation("[DEBUG-ci-remote-save] configuring remote debugger");
             remote.Debugger.SetDebugMode(DebugModes.LocalScript | DebugModes.RemoteScript);
-            System.Diagnostics.Trace.TraceInformation("[DEBUG-ci-remote-save] remote debugger configured");
             remote.Debugger.DebuggerStop += OnDebuggerStop;
             remote.StateChanged += OnRemoteStateChanged;
             SaveRunspaceBreakpoints();

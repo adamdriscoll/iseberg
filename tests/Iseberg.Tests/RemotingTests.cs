@@ -97,7 +97,7 @@ public sealed class RemotingTests
         var original = session.RunspaceId;
         await session.ExecuteAsync($$"""
             $testRunspace = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace(
-                [System.Management.Automation.Runspaces.NamedPipeConnectionInfo]::new({{server.ProcessId}}),
+                [System.Management.Automation.Runspaces.NamedPipeConnectionInfo]::new('{{server.PipeName}}'),
                 $Host, [System.Management.Automation.Runspaces.TypeTable]::LoadDefaultTypeFiles())
             $testRunspace.Open()
             $constructor = [System.Management.Automation.Runspaces.PSSession].GetConstructors(
@@ -161,57 +161,33 @@ public sealed class RemotingTests
     [Fact]
     public async Task FailedRemoteSaveKeepsDirtyTextAndNewFilesReceiveRemoteIdentity()
     {
-        static void Progress(string stage)
-        {
-            var directory = Path.Combine(Environment.GetEnvironmentVariable("GITHUB_WORKSPACE") ??
-                Directory.GetCurrentDirectory(), "TestResults");
-            Directory.CreateDirectory(directory);
-            File.AppendAllText(Path.Combine(directory, "remote-save-progress.log"),
-                $"[DEBUG-ci-remote-save] {DateTime.UtcNow:O} {stage}{Environment.NewLine}");
-        }
-        Progress("starting server");
-        var logDirectory = Path.Combine(Environment.GetEnvironmentVariable("GITHUB_WORKSPACE") ??
-            Directory.GetCurrentDirectory(), "TestResults");
-        using var log = new StreamWriter(Path.Combine(logDirectory, "remote-connect-progress.log"), append: true) { AutoFlush = true };
-        using var listener = new TextWriterTraceListener(log);
-        Trace.Listeners.Add(listener);
         await using var server = await RemoteServer.StartAsync();
-        Progress("initializing session");
         await using var session = new PowerShellSession();
         await session.InitializeAsync();
-        Progress("connecting");
         await session.ConnectAsync(server.Connection);
-        Progress("connected");
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + "-new-remote.ps1");
         var file = new ScriptFile("Untitled.ps1") { Text = "'new-remote-marker'\n" };
         try
         {
-            Progress("attempting invalid save");
             await Assert.ThrowsAsync<RemoteException>(() => session.SaveRemoteFileAsync(file, Path.Combine(path, "missing", "script.ps1")));
-            Progress("invalid save reported");
             Assert.True(file.IsDirty);
             Assert.False(file.IsRemote);
             await session.SaveRemoteFileAsync(file, path);
-            Progress("valid save completed");
             Assert.True(file.IsRemote);
             Assert.Equal(session.RunspaceId, file.RemoteRunspaceId);
             Assert.False(file.IsDirty);
             file.Text = "'changed'";
             await session.ExitRemoteSessionAsync();
-            Progress("exited remote session");
-            await session.ConnectAsync(server.Connection);
-            Progress("reconnected");
+            // A fresh endpoint avoids racing the named-pipe server's asynchronous detach.
+            await using var replacementServer = await RemoteServer.StartAsync();
+            await session.ConnectAsync(replacementServer.Connection);
+            Assert.NotEqual(session.RunspaceId, file.RemoteRunspaceId);
             await Assert.ThrowsAsync<InvalidOperationException>(() => session.SaveRemoteFileAsync(file));
             Assert.True(file.IsDirty);
             Assert.Equal("'new-remote-marker'\n", await File.ReadAllTextAsync(path));
-            Progress("assertions completed");
+            await session.ExitRemoteSessionAsync();
         }
-        finally
-        {
-            File.Delete(path);
-            Progress("beginning automatic disposal");
-            Trace.Listeners.Remove(listener);
-        }
+        finally { File.Delete(path); }
     }
 
     [Fact]
@@ -296,9 +272,13 @@ public sealed class RemotingTests
     internal sealed class RemoteServer : IAsyncDisposable
     {
         private readonly Process process;
-        public int ProcessId => process.Id;
-        public NamedPipeConnectionInfo Connection => new(ProcessId) { OpenTimeout = 10000 };
-        private RemoteServer(Process process) => this.process = process;
+        public string PipeName { get; }
+        public NamedPipeConnectionInfo Connection => new(PipeName) { OpenTimeout = 10000 };
+        private RemoteServer(Process process, string pipeName)
+        {
+            this.process = process;
+            PipeName = pipeName;
+        }
         public void Kill()
         {
             if (!process.HasExited) process.Kill(entireProcessTree: true);
@@ -306,19 +286,20 @@ public sealed class RemotingTests
 
         public static async Task<RemoteServer> StartAsync()
         {
+            var pipeName = "iseberg-test-" + Guid.NewGuid().ToString("N");
             var start = new ProcessStartInfo("pwsh")
             {
                 UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+            foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-CustomPipeName", pipeName, "-Command",
                 "Write-Output 'remote-server-ready'; Start-Sleep -Seconds 180" })
                 start.ArgumentList.Add(argument);
             var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start the remoting test server.");
             try
             {
                 Assert.Equal("remote-server-ready", await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(15)));
-                return new(process);
+                return new(process, pipeName);
             }
             catch
             {
