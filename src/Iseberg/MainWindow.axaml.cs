@@ -53,6 +53,8 @@ public sealed partial class MainWindow : Window
     private bool windowClosed;
     private bool updatingCommandList;
     private readonly Dictionary<SessionModel, Action<ShowCommandRequest>> showCommandHandlers = [];
+    private readonly Dictionary<SessionModel, Action<InputRequest>> inputHandlers = [];
+    private readonly Dictionary<SessionModel, Action<CommandErrorRequest>> commandErrorHandlers = [];
     private bool completionPending;
     private IReadOnlySet<CompletionResultType>? automaticCompletionFilter;
     private TextEditor? automaticCompletionEditor;
@@ -82,6 +84,10 @@ public sealed partial class MainWindow : Window
                 DetachDebugger(session);
                 if (showCommandHandlers.Remove(session, out var handler))
                     session.Engine.ShowCommandRequested -= handler;
+                if (inputHandlers.Remove(session, out var inputHandler))
+                    session.Engine.InputRequested -= inputHandler;
+                if (commandErrorHandlers.Remove(session, out var errorHandler))
+                    session.Engine.CommandErrorRequested -= errorHandler;
             }
             foreach (var session in e.NewItems?.OfType<SessionModel>() ?? [])
             {
@@ -90,6 +96,12 @@ public sealed partial class MainWindow : Window
                     Dispatcher.UIThread.Post(() => ShowConsoleCommand(session, request));
                 showCommandHandlers.Add(session, handler);
                 session.Engine.ShowCommandRequested += handler;
+                Action<InputRequest> inputHandler = request => Dispatcher.UIThread.Post(() => ShowHostInput(session, request));
+                inputHandlers.Add(session, inputHandler);
+                session.Engine.InputRequested += inputHandler;
+                Action<CommandErrorRequest> errorHandler = request => Dispatcher.UIThread.Post(() => ShowCommandError(session, request));
+                commandErrorHandlers.Add(session, errorHandler);
+                session.Engine.CommandErrorRequested += errorHandler;
             }
         };
         ScriptEditor.Options.IndentationSize = 4;
@@ -181,6 +193,12 @@ public sealed partial class MainWindow : Window
             foreach (var (session, handler) in showCommandHandlers)
                 session.Engine.ShowCommandRequested -= handler;
             showCommandHandlers.Clear();
+            foreach (var (session, handler) in inputHandlers)
+                session.Engine.InputRequested -= handler;
+            inputHandlers.Clear();
+            foreach (var (session, handler) in commandErrorHandlers)
+                session.Engine.CommandErrorRequested -= handler;
+            commandErrorHandlers.Clear();
             foreach (var session in debuggerHandlers.Keys.ToArray()) DetachDebugger(session);
             DesktopTheme.Changed -= ApplyAppearance;
         };
@@ -213,22 +231,6 @@ public sealed partial class MainWindow : Window
     private async Task NewSessionAsync(System.Management.Automation.Runspaces.RunspaceConnectionInfo? connection = null)
     {
         var session = new SessionModel($"PowerShell {++sessionNumber}");
-        session.Engine.InputRequested += request => Dispatcher.UIThread.Post(async () =>
-        {
-            try
-            {
-                Workbench.SelectedSession = session;
-                DisplaySession();
-                var answer = await Dialogs.AskAsync(this, request.Caption, request.Message, secret: request.Secret);
-                if (answer is null) request.Response.TrySetCanceled();
-                else request.Response.TrySetResult(answer);
-            }
-            catch (Exception exception) when (exception is InvalidOperationException)
-            {
-                request.Response.TrySetException(exception);
-                await ReportErrorAsync("PowerShell input failed", exception);
-            }
-        });
         session.Engine.ConsoleCleared += () => Dispatcher.UIThread.Post(() => session.ClearOutput());
         session.Engine.ProgressChanged += progress => Dispatcher.UIThread.Post(() =>
         {
@@ -361,9 +363,10 @@ public sealed partial class MainWindow : Window
         var state = displayedSession?.Engine.State ?? SessionState.Starting;
         var ready = state == SessionState.Ready;
         var paused = displayedSession?.Engine.IsDebuggerPaused == true;
+        var nested = displayedSession?.Engine.IsNestedPromptActive == true;
         RunButton.IsEnabled = displayedFile is not null && (ready || paused) && displayedSession?.Evaluating != true;
-        SelectionButton.IsEnabled = displayedFile is not null && (ready || paused) && displayedSession?.Evaluating != true;
-        StopButton.IsEnabled = state is SessionState.Running or SessionState.Debugging;
+        SelectionButton.IsEnabled = displayedFile is not null && (ready || paused || nested) && displayedSession?.Evaluating != true;
+        StopButton.IsEnabled = state is SessionState.Running or SessionState.Debugging or SessionState.NestedPrompt;
         var validCommand = CommandForm.Result is { IsValid: true };
         CommandRunButton.IsEnabled = ready && validCommand;
         CommandCopyButton.IsEnabled = validCommand;
@@ -371,8 +374,8 @@ public sealed partial class MainWindow : Window
         CommandHelpButton.IsEnabled = ready && CommandList.SelectedItem is not null;
         CommandRefreshButton.IsEnabled = ready;
         CommandList.IsEnabled = ready;
-        var canEvaluate = paused && displayedSession?.Evaluating != true;
-        CallStackList.IsEnabled = canEvaluate;
+        var canEvaluate = (paused || nested) && displayedSession?.Evaluating != true;
+        CallStackList.IsEnabled = paused && canEvaluate;
         ConsoleEditor.IsReadOnly = !(ready || canEvaluate);
         ScriptEditor.IsReadOnly = paused;
         if (!ready && !canEvaluate)
@@ -387,6 +390,7 @@ public sealed partial class MainWindow : Window
             SessionState.Ready => completionNotice ?? UiText.Get("Ready"),
             SessionState.Running => UiText.Get(displayedSession?.EditingBreakpoints == true ? "PauseForBreakpointEdit" : "Running"),
             SessionState.Debugging => string.Format(UiText.Get("DebugStatus"), displayedSession?.DebugLocation?.Line),
+            SessionState.NestedPrompt => UiText.Get("NestedPromptStatus"),
             SessionState.Disposed => UiText.Get("SessionClosed"),
             _ => UiText.Get("Starting")
         };
@@ -679,7 +683,7 @@ public sealed partial class MainWindow : Window
 
     private async Task CloseFileAsync(SessionModel session, ScriptTab tab)
     {
-        if (session.Engine.State is SessionState.Running or SessionState.Debugging)
+        if (session.Engine.State is SessionState.Running or SessionState.Debugging or SessionState.NestedPrompt)
             throw new InvalidOperationException("Stop execution before closing a script.");
         if (!await ConfirmSaveAsync(tab)) return;
         await autoSaveTask;
@@ -708,7 +712,7 @@ public sealed partial class MainWindow : Window
 
     private async Task<bool> CloseSessionAsync(SessionModel session)
     {
-        if (session.Engine.State is SessionState.Running or SessionState.Debugging)
+        if (session.Engine.State is SessionState.Running or SessionState.Debugging or SessionState.NestedPrompt)
         {
             if (await Dialogs.ChooseAsync(this, "Stop execution", "Stop the running command and close this PowerShell tab?", "Stop", "Cancel") != "Stop")
                 return false;
@@ -739,6 +743,7 @@ public sealed partial class MainWindow : Window
             var text = ScriptEditor.SelectedText;
             if (text.Length == 0) text = ScriptEditor.Document.GetText(ScriptEditor.Document.GetLineByNumber(ScriptEditor.TextArea.Caret.Line));
             if (session.Engine.State == SessionState.Debugging) await EvaluateConsoleAsync(session, text);
+            else if (session.Engine.IsNestedPromptActive) await EvaluateNestedConsoleAsync(session, text);
             else await session.Engine.ExecuteAsync(text);
         }
         else
@@ -780,7 +785,7 @@ public sealed partial class MainWindow : Window
     {
         if (e.Handled) return;
         if (displayedSession is not { } session || session.Evaluating ||
-            session.Engine.State is not (SessionState.Ready or SessionState.Debugging)) return;
+            session.Engine.State is not (SessionState.Ready or SessionState.Debugging or SessionState.NestedPrompt)) return;
         if (completion is not null && (e.Key == Key.Tab || e.Key == Key.Enter && settings.ConsoleCompletionOnEnter)) return;
         if (e.Key == Key.Escape)
         {
@@ -822,6 +827,7 @@ public sealed partial class MainWindow : Window
             await GuardAsync(async () =>
             {
                 if (session.Engine.State == SessionState.Debugging) await EvaluateConsoleAsync(session, text);
+                else if (session.Engine.IsNestedPromptActive) await EvaluateNestedConsoleAsync(session, text);
                 else
                 {
                     await session.Engine.ExecuteAsync(text);
@@ -843,7 +849,7 @@ public sealed partial class MainWindow : Window
         else if (e.Key == Key.Tab)
         {
             e.Handled = true;
-            if ((session.Engine.State == SessionState.Ready || session.Engine.IsDebuggerPaused) && ConsoleEditor.CaretOffset >= session.Console.InputStart)
+            if ((session.Engine.State == SessionState.Ready || session.Engine.IsDebuggerPaused || session.Engine.IsNestedPromptActive) && ConsoleEditor.CaretOffset >= session.Console.InputStart)
                 await GuardAsync(() => CompleteConsoleAsync(e.KeyModifiers.HasFlag(KeyModifiers.Shift)));
         }
     }
@@ -960,6 +966,7 @@ public sealed partial class MainWindow : Window
         var state = displayedSession?.Engine.State;
         var ready = state == SessionState.Ready;
         var paused = displayedSession?.Engine.IsDebuggerPaused == true;
+        var nested = displayedSession?.Engine.IsNestedPromptActive == true;
         foreach (var item in ActionMenus())
         {
             if (item.Tag is not string action) continue;
@@ -976,13 +983,13 @@ public sealed partial class MainWindow : Window
             item.IsEnabled = action switch
             {
                 "Run" => displayedFile is not null && (ready || paused) && displayedSession?.Evaluating != true,
-                "RunSelection" => displayedFile is not null && (ready || paused) && displayedSession?.Evaluating != true,
-                "Stop" => state is SessionState.Running or SessionState.Debugging,
+                "RunSelection" => displayedFile is not null && (ready || paused || nested) && displayedSession?.Evaluating != true,
+                "Stop" => state is SessionState.Running or SessionState.Debugging or SessionState.NestedPrompt,
                 "StepInto" or "StepOver" or "StepOut" or "Continue" => paused && displayedSession?.Evaluating != true,
                 "BreakAll" => state == SessionState.Running,
                 "Breakpoint" or "RemoveBreakpoints" or "NewBreakpoint" => (ready || paused || state == SessionState.Running) &&
                     displayedSession?.Evaluating != true && displayedSession?.EditingBreakpoints != true,
-                "Complete" => (ready || paused) && displayedSession?.Evaluating != true,
+                "Complete" => (ready || paused || nested) && displayedSession?.Evaluating != true,
                 "Profiles" or "ShowCommand" => ready,
                 "OpenRemoteFile" => (ready || paused) && displayedSession?.Engine.IsRemote == true,
                 "ExitRemoteSession" => ready && displayedSession?.Engine.IsRunspacePushed == true,
@@ -1093,7 +1100,7 @@ public sealed partial class MainWindow : Window
         completionPending = true;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(settings.IntelliSenseTimeoutSeconds));
         try { return await session.Engine.CompleteAsync(text, caret, timeout.Token); }
-        catch (InvalidOperationException) when (session.Engine.State != SessionState.Ready && !session.Engine.IsDebuggerPaused)
+        catch (InvalidOperationException) when (session.Engine.State != SessionState.Ready && !session.Engine.IsDebuggerPaused && !session.Engine.IsNestedPromptActive)
         { return null; }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
@@ -1110,7 +1117,7 @@ public sealed partial class MainWindow : Window
 
     private async Task RequestCompletionAsync(TextEditor editor, IReadOnlySet<CompletionResultType>? filter = null)
     {
-        if (displayedSession is not { } session || (session.Engine.State != SessionState.Ready && !session.Engine.IsDebuggerPaused) ||
+        if (displayedSession is not { } session || (session.Engine.State != SessionState.Ready && !session.Engine.IsDebuggerPaused && !session.Engine.IsNestedPromptActive) ||
             session.Evaluating || completion is not null || completionPending ||
             editor.IsReadOnly && !(editor == ScriptEditor && session.Engine.IsDebuggerPaused)) return;
         var revision = session.DebugRevisionCounter;
@@ -1642,7 +1649,7 @@ public sealed partial class MainWindow : Window
             Key.D2 when ctrl => "Right",
             Key.D3 when ctrl => "Maximized",
             Key.C when ctrl && shift => "Commands",
-            Key.C when ctrl && displayedSession?.Engine.State is SessionState.Running or SessionState.Debugging => "Stop",
+            Key.C when ctrl && displayedSession?.Engine.State is SessionState.Running or SessionState.Debugging or SessionState.NestedPrompt => "Stop",
             Key.Space when ctrl => "Complete",
             Key.OemPlus or Key.Add when ctrl => "ZoomIn",
             Key.OemMinus or Key.Subtract when ctrl => "ZoomOut",

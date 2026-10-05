@@ -7,7 +7,8 @@ using System.Security;
 
 namespace Iseberg.Core;
 
-internal sealed record WorkbenchHostServices(Func<ShowCommandRequest, string?> ShowCommand);
+internal sealed record WorkbenchHostServices(Func<ShowCommandRequest, string?> ShowCommand, Action<string> ShowCommandError,
+    Func<bool> IsRunspacePushed);
 
 internal sealed class WorkbenchHost : PSHost, IHostSupportsInteractiveSession
 {
@@ -18,17 +19,22 @@ internal sealed class WorkbenchHost : PSHost, IHostSupportsInteractiveSession
     private readonly Func<bool> isPushed;
     private readonly Action<Runspace> push;
     private readonly Action pop;
+    private readonly Action enterNested;
+    private readonly Action exitNested;
 
     public WorkbenchHost(Action<OutputEntry> write, Func<InputRequest, string> read,
         Action<ProgressUpdate> progress, Action clear, Func<ShowCommandRequest, string?> showCommand,
-        Func<Runspace> currentRunspace, Func<bool> isPushed, Action<Runspace> push, Action pop)
+        Func<Runspace> currentRunspace, Func<bool> isPushed, Action<Runspace> push, Action pop,
+        Action enterNested, Action exitNested, Action<string> showCommandError)
     {
         ui = new(write, read, progress, clear);
-        privateData = PSObject.AsPSObject(new WorkbenchHostServices(showCommand));
+        privateData = PSObject.AsPSObject(new WorkbenchHostServices(showCommand, showCommandError, isPushed));
         this.currentRunspace = currentRunspace;
         this.isPushed = isPushed;
         this.push = push;
         this.pop = pop;
+        this.enterNested = enterNested;
+        this.exitNested = exitNested;
     }
 
     public bool IsRunspacePushed => isPushed();
@@ -48,22 +54,25 @@ internal sealed class WorkbenchHost : PSHost, IHostSupportsInteractiveSession
         if (IsRunspacePushed) PopRunspace();
         else ui.WriteWarningLine($"The script requested exit ({exitCode}). The editor session remains open.");
     }
-    public override void EnterNestedPrompt() => throw new PSNotSupportedException("Nested prompts are not supported. Use script breakpoints.");
-    public override void ExitNestedPrompt() => throw new PSNotSupportedException("No nested prompt is active.");
-    public override void NotifyBeginApplication() { }
+    public override void EnterNestedPrompt() => enterNested();
+    public override void ExitNestedPrompt() => exitNested();
+    public override void NotifyBeginApplication() =>
+        ui.WriteWarningLine("Native output is redirected to the transcript; interactive terminal input is unavailable here. Use Start-IsebergTerminal for interactive applications.");
     public override void NotifyEndApplication() { }
 }
 
 internal sealed class WorkbenchHostUi(
     Action<OutputEntry> write, Func<InputRequest, string> read,
-    Action<ProgressUpdate> progress, Action clear) : PSHostUserInterface
+    Action<ProgressUpdate> progress, Action clear) : PSHostUserInterface, IHostUISupportsMultipleChoiceSelection
 {
     private readonly WorkbenchRawUi raw = new(clear);
+    public override bool SupportsVirtualTerminal => true;
     public override PSHostRawUserInterface RawUI => raw;
     public override string ReadLine() => read(new("PowerShell", "Enter a value:"));
     public override SecureString ReadLineAsSecureString() => ToSecure(read(new("PowerShell", "Enter a secure value:", true)));
-    public override void Write(string value) => write(new(value));
-    public override void Write(ConsoleColor foregroundColor, ConsoleColor backgroundColor, string value) => Write(value);
+    public override void Write(string value) => write(new(value, Style: raw.DefaultStyle));
+    public override void Write(ConsoleColor foregroundColor, ConsoleColor backgroundColor, string value) =>
+        write(new(value, Style: new(AnsiOutputParser.ConsoleColorHex(foregroundColor), AnsiOutputParser.ConsoleColorHex(backgroundColor))));
     public override void WriteLine(string value) => Write(value + Environment.NewLine);
     public override void WriteErrorLine(string value) => write(new(value + Environment.NewLine, OutputKind.Error));
     public override void WriteWarningLine(string message) => write(new("WARNING: " + message + Environment.NewLine, OutputKind.Warning));
@@ -93,24 +102,71 @@ internal sealed class WorkbenchHostUi(
 
     public override int PromptForChoice(string caption, string message, Collection<ChoiceDescription> choices, int defaultChoice)
     {
-        var labels = string.Join(Environment.NewLine, choices.Select((c, i) => $"[{i}] {c.Label.Replace("&", "")}"));
+        ValidateChoices(choices);
+        if (defaultChoice < -1 || defaultChoice >= choices.Count)
+            throw new ArgumentOutOfRangeException(nameof(defaultChoice));
         while (true)
         {
-            var value = read(new(caption, $"{message}\n{labels}\nDefault: {defaultChoice}"));
+            var value = read(new(caption, message)
+            {
+                Choices = choices.Select(choice => new PromptChoice(choice.Label.Replace("&", ""), choice.HelpMessage)).ToArray(),
+                DefaultChoices = defaultChoice >= 0 && defaultChoice < choices.Count ? [defaultChoice] : []
+            });
             if (string.IsNullOrWhiteSpace(value) && defaultChoice >= 0 && defaultChoice < choices.Count)
                 return defaultChoice;
-            if (int.TryParse(value, out var index) && index >= 0 && index < choices.Count)
-                return index;
-            for (var i = 0; i < choices.Count; i++)
-            {
-                var label = choices[i].Label;
-                var marker = label.IndexOf('&');
-                if (string.Equals(value, label.Replace("&", ""), StringComparison.OrdinalIgnoreCase) ||
-                    (marker >= 0 && marker + 1 < label.Length && string.Equals(value, label[(marker + 1)..(marker + 2)], StringComparison.OrdinalIgnoreCase)))
-                    return i;
-            }
+            var index = ChoiceIndex(value, choices);
+            if (index >= 0 && index < choices.Count) return index;
             WriteWarningLine("Enter a choice number or its label.");
         }
+    }
+
+    public Collection<int> PromptForChoice(string? caption, string? message, Collection<ChoiceDescription> choices,
+        IEnumerable<int>? defaultChoices)
+    {
+        ValidateChoices(choices);
+        var defaults = defaultChoices?.Distinct().ToArray() ?? [];
+        if (defaults.Any(index => index < 0 || index >= choices.Count))
+            throw new ArgumentOutOfRangeException(nameof(defaultChoices));
+        while (true)
+        {
+            var value = read(new(caption ?? "PowerShell", message ?? "")
+            {
+                Choices = choices.Select(choice => new PromptChoice(choice.Label.Replace("&", ""), choice.HelpMessage)).ToArray(),
+                MultipleChoice = true, DefaultChoices = defaults
+            });
+            if (value == "-") return [];
+            if (string.IsNullOrWhiteSpace(value)) return new(defaults.ToList());
+            var indices = new List<int>();
+            foreach (var part in value.Split(','))
+            {
+                var index = ChoiceIndex(part.Trim(), choices);
+                if (index < 0 || index >= choices.Count) { indices.Clear(); break; }
+                if (!indices.Contains(index)) indices.Add(index);
+            }
+            if (indices.Count > 0) return new(indices);
+            WriteWarningLine("Enter comma-separated choice numbers or labels.");
+        }
+    }
+
+    private static void ValidateChoices(Collection<ChoiceDescription> choices)
+    {
+        ArgumentNullException.ThrowIfNull(choices);
+        if (choices.Count == 0) throw new ArgumentException("At least one choice is required.", nameof(choices));
+    }
+
+    private static int ChoiceIndex(string value, Collection<ChoiceDescription> choices)
+    {
+        if (int.TryParse(value, out var index)) return index;
+        for (var i = 0; i < choices.Count; i++)
+        {
+            var label = choices[i].Label;
+            var marker = label.IndexOf('&');
+            if (string.Equals(value, label.Replace("&", ""), StringComparison.OrdinalIgnoreCase) ||
+                marker >= 0 && marker + 1 < label.Length &&
+                string.Equals(value, label.Substring(marker + 1, 1), StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+        return -1;
     }
 
     public override PSCredential PromptForCredential(string caption, string message, string userName, string targetName) =>
@@ -135,18 +191,33 @@ internal sealed class WorkbenchHostUi(
 
 internal sealed class WorkbenchRawUi(Action clear) : PSHostRawUserInterface
 {
-    public override ConsoleColor ForegroundColor { get; set; } = ConsoleColor.White;
-    public override ConsoleColor BackgroundColor { get; set; } = ConsoleColor.DarkBlue;
-    public override Coordinates CursorPosition { get; set; }
-    public override Coordinates WindowPosition { get; set; }
-    public override int CursorSize { get; set; } = 25;
-    public override Size BufferSize { get; set; } = new(120, 3000);
-    public override Size WindowSize { get; set; } = new(120, 40);
-    public override Size MaxWindowSize => new(240, 100);
+    private ConsoleColor foreground = ConsoleColor.White;
+    private ConsoleColor background = ConsoleColor.DarkBlue;
+    private bool foregroundChanged;
+    private bool backgroundChanged;
+    internal OutputStyle? DefaultStyle => foregroundChanged || backgroundChanged
+        ? new(foregroundChanged ? AnsiOutputParser.ConsoleColorHex(foreground) : null,
+            backgroundChanged ? AnsiOutputParser.ConsoleColorHex(background) : null) : null;
+    public override ConsoleColor ForegroundColor
+    {
+        get => foreground;
+        set { _ = AnsiOutputParser.ConsoleColorHex(value); foreground = value; foregroundChanged = true; }
+    }
+    public override ConsoleColor BackgroundColor
+    {
+        get => background;
+        set { _ = AnsiOutputParser.ConsoleColorHex(value); background = value; backgroundChanged = true; }
+    }
+    public override Coordinates CursorPosition { get => new(0, 0); set => throw Unsupported(); }
+    public override Coordinates WindowPosition { get => new(0, 0); set => throw Unsupported(); }
+    public override int CursorSize { get => 25; set => throw Unsupported(); }
+    public override Size BufferSize { get => new(120, 3000); set => throw Unsupported(); }
+    public override Size WindowSize { get => new(120, 40); set => throw Unsupported(); }
+    public override Size MaxWindowSize => new(120, 40);
     public override Size MaxPhysicalWindowSize => MaxWindowSize;
     public override bool KeyAvailable => false;
     public override string WindowTitle { get; set; } = "Iseberg";
-    public override void FlushInputBuffer() { }
+    public override void FlushInputBuffer() => throw Unsupported();
     public override KeyInfo ReadKey(ReadKeyOptions options) =>
         throw new PSNotSupportedException("This graphical host does not provide raw keyboard input. Use Read-Host.");
     public override BufferCell[,] GetBufferContents(Rectangle rectangle) =>
@@ -162,4 +233,6 @@ internal sealed class WorkbenchRawUi(Action clear) : PSHostRawUserInterface
     }
     public override void ScrollBufferContents(Rectangle source, Coordinates destination, Rectangle clip, BufferCell fill) =>
         throw new PSNotSupportedException("Character-cell scrolling is not supported.");
+    private static PSNotSupportedException Unsupported() =>
+        new("This protected transcript has no terminal cursor, resizable character buffer or raw keyboard queue. Use Read-Host or Start-IsebergTerminal.");
 }
