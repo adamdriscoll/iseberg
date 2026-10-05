@@ -17,7 +17,7 @@ public sealed class ScriptTab : ObservableModel
 {
     public Guid RecoveryId { get; } = Guid.NewGuid();
     private readonly List<(TextAnchor Anchor, BreakpointSpec Spec)> breakpointAnchors = [];
-    public ScriptFile File { get; }
+    public ScriptFile File { get; private set; }
     public TextDocument Document { get; }
     public ScriptTab(ScriptFile file)
     {
@@ -105,6 +105,18 @@ public sealed class ScriptTab : ObservableModel
     {
         breakpointAnchors.Clear();
         File.Breakpoints.Clear();
+    }
+
+    public void Reload(ScriptFile file)
+    {
+        var specs = LineBreakpoints;
+        var caret = File.CaretOffset;
+        File = file;
+        Document.Text = file.Text;
+        Document.UndoStack.ClearAll();
+        File.CaretOffset = Math.Min(caret, Document.TextLength);
+        ReplaceBreakpoints(specs.Select(spec => spec with { ScriptPath = file.Path }));
+        Changed(nameof(File));
     }
 }
 

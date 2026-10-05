@@ -14,6 +14,9 @@
         <MenuItem Header="_Save" InputGesture="Ctrl+S" Tag="Save" Click="OnAction" />
         <MenuItem Header="Save _As..." InputGesture="Ctrl+Shift+S" Tag="SaveAs" Click="OnAction" />
         <MenuItem Header="Save A_ll" Tag="SaveAll" Click="OnAction" />
+        <MenuItem Tag="Encoding" Click="OnAction" />
+        <MenuItem Tag="Reload" Click="OnAction" />
+        <MenuItem Tag="Print" InputGesture="Ctrl+P" Click="OnAction" />
         <Separator />
         <MenuItem Header="_Close" InputGesture="Ctrl+W" Tag="Close" Click="OnAction" />
         <MenuItem x:Name="RecentMenu" Header="Recent _Files" />

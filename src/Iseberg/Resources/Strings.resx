@@ -1,5 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="Encoding" xml:space="preserve"><value>File _Encoding...</value></data>
+  <data name="EncodingTitle" xml:space="preserve"><value>File Encoding</value></data>
+  <data name="EncodingHint" xml:space="preserve"><value>Convert changes the encoding used on the next save. Reload decodes the file again and requires confirmation before discarding edits.</value></data>
+  <data name="OpenEncodingHint" xml:space="preserve"><value>This file is not valid UTF-8. Choose its encoding explicitly to open it without replacing invalid bytes.</value></data>
+  <data name="OpenWithEncoding" xml:space="preserve"><value>Open with encoding</value></data>
+  <data name="ConvertEncoding" xml:space="preserve"><value>Convert on save</value></data>
+  <data name="ReloadEncoding" xml:space="preserve"><value>Reload with encoding</value></data>
+  <data name="Reload" xml:space="preserve"><value>_Reload from Disk...</value></data>
+  <data name="ExternalChange" xml:space="preserve"><value>File changed outside Iseberg</value></data>
+  <data name="ExternalChangeHint" xml:space="preserve"><value>{0} was changed or deleted outside Iseberg. Reload discards this tab's edits; Keep Edits does not grant permission to overwrite the file.</value></data>
+  <data name="SaveConflictHint" xml:space="preserve"><value>{0} has changed or already exists. Reload discards this tab's edits. Overwrite explicitly replaces the current disk version.</value></data>
+  <data name="ReloadFile" xml:space="preserve"><value>Reload</value></data>
+  <data name="KeepEdits" xml:space="preserve"><value>Keep Edits</value></data>
+  <data name="OverwriteFile" xml:space="preserve"><value>Overwrite</value></data>
+  <data name="ReloadConfirm" xml:space="preserve"><value>Reload {0} and discard this tab's unsaved text and encoding changes?</value></data>
+  <data name="Print" xml:space="preserve"><value>_Print...</value></data>
+  <data name="PrintHint" xml:space="preserve"><value>Print this snapshot using the browser's Print button or Ctrl+P. Choose a printer or Save as PDF. This does not save the script.</value></data>
+  <data name="PrintLaunchFailed" xml:space="preserve"><value>Could not open the print preview in a browser.</value></data>
+  <data name="ImportTheme" xml:space="preserve"><value>Import...</value></data>
+  <data name="ExportTheme" xml:space="preserve"><value>Export...</value></data>
+  <data name="ThemeFile" xml:space="preserve"><value>Iseberg theme (*.json)</value></data>
+  <data name="ThemeOverwrite" xml:space="preserve"><value>A custom theme with this name already exists. Replace it?</value></data>
+  <data name="ThemeBuiltinName" xml:space="preserve"><value>Imported themes cannot replace a built-in theme. Change the name in the theme file first.</value></data>
+  <data name="RestoreWorkbenchFailed" xml:space="preserve"><value>Could not restore the workbench</value></data>
+  <data name="RestoreDocumentFailed" xml:space="preserve"><value>Could not restore the document</value></data>
   <data name="NewRemoteSession" xml:space="preserve"><value>New _Remote PowerShell Tab...</value></data>
   <data name="OpenRemoteFile" xml:space="preserve"><value>Open Remote File...</value></data>
   <data name="SaveRemoteFile" xml:space="preserve"><value>Save Remote File</value></data>

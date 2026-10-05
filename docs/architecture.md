@@ -12,7 +12,7 @@ Iseberg is a cross-platform desktop workbench inspired by PowerShell ISE.
 | `PowerShellSession.Debugger`, `DebuggerModels` and `BreakpointWindow` | Suspended-thread evaluation/inspection, debugger work queue, typed breakpoint descriptions/validation and live breakpoint editing |
 | `PowerShellSession.Remoting`, `MainWindow.Remoting` and `RemoteConnectionWindow` | Interactive runspace ownership/switching, SSH/WSMan connection UI, connection-bound remote file transfer, remote identity and source navigation |
 | `WorkbenchHost` | PowerShell input, credentials, choices, output streams, console clearing and progress |
-| `ScriptFile` and `ScriptTab` | File metadata and persistence, dirty state, per-file text documents, undo histories and breakpoint anchors |
+| `ScriptFile`, `ScriptEncoding`, and `ScriptTab` | Strict byte decoding/conversion, content-version save preconditions, dirty state, per-file documents, undo histories and breakpoint anchors |
 | `EditorAnalysis`, editor rendering and `BreakpointMargin` | Parser-based syntax coloring, diagnostics, folding, completion context, matching-brace navigation, dedicated breakpoint gutter and theme-aware debugger highlights |
 | `ConsoleBuffer` | Protected transcript and prompt, editable input, output spans and buffer limits in one text document |
 | `ReplacementSearch` and `ReplaceWindow` | Literal/regex replacement, search options, selection scope and undo grouping |
@@ -20,6 +20,8 @@ Iseberg is a cross-platform desktop workbench inspired by PowerShell ISE.
 | `CommandForm` and `CommandFormView` | Parameter-set metadata, per-session drafts, literal/expression serialization, required-field validation, expandable typed editors and a shared preview for pane/dialog actions |
 | `CommandHelpDocument`, `CommandHelpWindow` and `HelpSettingsWindow` | Structured PowerShell help sections, selectable/read-only help presentation, literal search and zoom, isolated settings drafts and persistent help preferences |
 | `UserSettings` and Options | Persisted preferences, themes, fonts, colors, completion behavior and recovery settings |
+| `WorkbenchStateStore`, `ScriptRecovery`, and `MainWindow.Persistence` | Configuration-only session checkpoints, separate unsaved recovery, fresh runspace restoration and window/pane geometry |
+| `ThemeFile` and `ScriptPrint` | Validated versioned theme transfer and escaped offline browser print snapshots |
 
 ## Design decisions
 
@@ -39,7 +41,11 @@ Call-stack selection inspects the chosen frame's locals plus accessible scope va
 
 Debugger persistence lives in `UserSettings.DebuggerSessions`, keyed by PowerShell tab name. Changes and normal closure capture watches and breakpoint specifications; new numbered sessions restore matching configurations after optional profiles load. Opening a saved script reconciles its markers with restored engine breakpoints. Settings copies and Options defaults preserve debugger configuration, and atomic writes use unique temporary files. IDs, hit counts, unsaved-script markers, frames, object handles and execution state are not serialized. The breakpoint editor validates specifications before replacing an engine breakpoint, and engine breakpoint lists reconcile editor markers after debugger-console changes.
 
-Script files retain their own text documents and undo histories. File persistence preserves recognized Unicode BOMs and line endings, marks a file saved only after a successful write, and replaces files through a temporary file in the destination directory.
+Script files retain their own text documents and undo histories. File persistence preserves recognized Unicode BOMs and line endings, marks a file saved only after a successful write, and replaces files through a temporary file in the destination directory. Explicit encoding choices use strict encoder/decoder fallbacks; legacy code pages are never inferred. Encoding changes participate in dirty state. Saved byte hashes detect external changes independently of file timestamps; saves require the original version or an explicitly confirmed destination version, checked again before replacement. Remote transfers apply the same byte-version precondition on the server. Reload updates the existing tab/document, discards undo only after successful decoding, and retains valid breakpoint specifications.
+
+Workbench checkpoints are deliberately separate from `UserSettings.DebuggerSessions` and recovery text. They contain ordered numbered-tab names, local document paths/encoding/caret positions, selections and debugger visibility, with process identity preventing restoration of another live instance. Startup creates new engines and restores debugger specifications by name, then reads current local files and offers recovery as detached unsaved copies. Unsaved text never enters the workbench manifest; remote connection details, execution state and pause-scoped objects are excluded. Recovery records preserve encoding and owning tab name, and retain compatibility with older records. Normal closure confirms every dirty document before persisting the manifest and disposing any tab, so cancellation leaves the workbench intact.
+
+Geometry stores normal window size/position separately from maximization and separate script ratios for top/right layouts. Layout changes capture the previous orientation before rebuilding the grid. Side-dock widths remain independent of visibility, and startup bounds window placement to an available screen. Theme imports validate a complete versioned color/font payload before modifying the Options draft. Browser printing writes only escaped text to a private offline temporary document, with cleanup on normal closure; it neither executes script text nor saves the script.
 
 PowerShell parser tokens drive highlighting and incomplete-input detection rather than a second regex language parser. PowerShell itself supplies completion and command metadata. UI output is drained in batches and the console buffer is bounded.
 

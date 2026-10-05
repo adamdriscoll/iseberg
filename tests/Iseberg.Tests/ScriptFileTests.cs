@@ -33,6 +33,7 @@ public sealed class ScriptFileTests
     [InlineData("utf16-le")]
     [InlineData("utf16-be")]
     [InlineData("utf32-le")]
+    [InlineData("utf32-be")]
     public async Task RoundTripsEncodingAndLineEndings(string kind)
     {
         Encoding encoding = kind switch
@@ -40,7 +41,8 @@ public sealed class ScriptFileTests
             "utf8-bom" => new UTF8Encoding(true),
             "utf16-le" => new UnicodeEncoding(false, true),
             "utf16-be" => new UnicodeEncoding(true, true),
-            _ => new UTF32Encoding(false, true)
+            "utf32-le" => new UTF32Encoding(false, true),
+            _ => new UTF32Encoding(true, true)
         };
         var path = TempFile();
         try
@@ -61,7 +63,7 @@ public sealed class ScriptFileTests
     public async Task FailedSaveDoesNotMarkDocumentAsSaved()
     {
         var file = new ScriptFile("Untitled.ps1") { Text = "unsaved" };
-        await Assert.ThrowsAsync<DirectoryNotFoundException>(() => file.SaveAsync(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "script.ps1")));
+        await Assert.ThrowsAsync<DirectoryNotFoundException>(() => file.SaveAsync(Path.Combine(Directory.GetCurrentDirectory(), Guid.NewGuid().ToString("N"), "script.ps1")));
         Assert.True(file.IsDirty);
         Assert.Null(file.Path);
     }
@@ -141,5 +143,5 @@ public sealed class ScriptFileTests
         finally { File.Delete(path); }
     }
 
-    private static string TempFile() => Path.Combine(Path.GetTempPath(), "iseberg-file-" + Guid.NewGuid().ToString("N") + ".ps1");
+    private static string TempFile() => Path.Combine(Directory.GetCurrentDirectory(), "iseberg-file-" + Guid.NewGuid().ToString("N") + ".ps1");
 }

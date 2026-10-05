@@ -29,7 +29,8 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer analysisTimer;
     private readonly DispatcherTimer autoSaveTimer;
     private readonly DispatcherTimer completionTimer;
-    private readonly ScriptRecovery recovery = new();
+    private readonly DispatcherTimer persistenceTimer;
+    private readonly ScriptRecovery recovery;
     private bool recovering;
     private bool autoSaving;
     private Task autoSaveTask = Task.CompletedTask;
@@ -66,9 +67,12 @@ public sealed partial class MainWindow : Window
 
     public MainWindow() : this([]) { }
 
-    public MainWindow(string[] args, bool initializeOnOpen = true, UserSettings? preferences = null, string? settingsPath = null)
+    public MainWindow(string[] args, bool initializeOnOpen = true, UserSettings? preferences = null, string? settingsPath = null,
+        string? recoveryDirectory = null)
     {
         settingsFilePath = settingsPath;
+        workbenchStore = new(settingsPath is null ? null : settingsPath + ".workbench.json");
+        recovery = new(recoveryDirectory ?? (settingsPath is null ? null : settingsPath + ".recovery"));
         if (preferences is not null) { settings = preferences.Copy(); settings.Normalize(); }
         startupFiles = args;
         InitializeComponent();
@@ -130,6 +134,29 @@ public sealed partial class MainWindow : Window
             if (autoSaving || closingInProgress) return;
             autoSaveTask = AutoSaveAsync();
         };
+        persistenceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        persistenceTimer.Tick += async (_, _) =>
+        {
+            if (!initialized || closingInProgress || restoringWorkbench) return;
+            await GuardAsync(async () =>
+            {
+                await SaveWorkbenchAsync();
+                if (IsActive) await CheckExternalFilesAsync();
+            });
+        };
+        Activated += async (_, _) =>
+        {
+            if (initialized) await GuardAsync(CheckExternalFilesAsync);
+        };
+        PropertyChanged += (_, change) =>
+        {
+            if (initialized && !closingInProgress && (change.Property == BoundsProperty || change.Property == WindowStateProperty))
+                CaptureWindowGeometry();
+        };
+        PositionChanged += (_, _) =>
+        {
+            if (initialized && !closingInProgress) CaptureWindowGeometry();
+        };
         ScriptEditor.TextArea.AddHandler(KeyDownEvent, (_, e) =>
         {
             if (e.Key == Key.Enter && !settings.ScriptCompletionOnEnter) completion?.Close();
@@ -172,7 +199,7 @@ public sealed partial class MainWindow : Window
             windowClosed = true;
             ++commandRequestVersion;
             windowCancellation.Cancel();
-            outputTimer.Stop(); analysisTimer.Stop(); autoSaveTimer.Stop(); completionTimer.Stop();
+            outputTimer.Stop(); analysisTimer.Stop(); autoSaveTimer.Stop(); completionTimer.Stop(); persistenceTimer.Stop();
             completion?.Close();
             commandFormCancellation?.Cancel();
             commandFormCancellation?.Dispose();
@@ -183,8 +210,17 @@ public sealed partial class MainWindow : Window
             showCommandHandlers.Clear();
             foreach (var session in debuggerHandlers.Keys.ToArray()) DetachDebugger(session);
             DesktopTheme.Changed -= ApplyAppearance;
+            foreach (var path in printPreviews)
+            {
+                try { File.Delete(path); }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                { System.Diagnostics.Trace.TraceError("Could not remove print preview: {0}", exception); }
+            }
         };
+        debuggerDockWidth = new(settings.Geometry.DebuggerWidth);
+        commandDockWidth = new(settings.Geometry.CommandsWidth);
         ApplySettings();
+        if (preferences is not null) ApplyWindowGeometry();
     }
 
     private async Task StartAsync()
@@ -194,15 +230,25 @@ public sealed partial class MainWindow : Window
         {
             await ReportErrorAsync("Could not load settings", exception);
         }
+        ApplyWindowGeometry();
+        debuggerDockWidth = new(settings.Geometry.DebuggerWidth);
+        commandDockWidth = new(settings.Geometry.CommandsWidth);
+        sidePaneLayoutInitialized = false;
+        appliedPaneLayout = null;
         initialized = true;
         ApplySettings();
         PopulateRecentMenu();
-        await NewSessionAsync();
+        try { await RestoreWorkbenchAsync(); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or ArgumentException)
+        { await ReportErrorAsync(UiText.Get("RestoreWorkbenchFailed"), exception); }
+        if (Workbench.Sessions.Count == 0) await NewSessionAsync();
         await RecoverScriptsAsync();
         foreach (var path in startupFiles)
             if (!path.StartsWith("--", StringComparison.Ordinal))
                 await OpenFileAsync(path);
         outputTimer.Start();
+        persistenceTimer.Start();
+        await SaveWorkbenchAsync();
         ScriptEditor.TextArea.Focus();
     }
 
@@ -210,9 +256,11 @@ public sealed partial class MainWindow : Window
         displayedSession is { } session && displayedFile is { } file && FileInCurrentRunspace(session, file)
             ? session.DebugLocation : null;
 
-    private async Task NewSessionAsync(System.Management.Automation.Runspaces.RunspaceConnectionInfo? connection = null)
+    private async Task NewSessionAsync(System.Management.Automation.Runspaces.RunspaceConnectionInfo? connection = null,
+        string? name = null, bool createDocument = true)
     {
-        var session = new SessionModel($"PowerShell {++sessionNumber}");
+        var session = new SessionModel(name ?? $"PowerShell {++sessionNumber}");
+        if (name is not null) sessionNumber = Math.Max(sessionNumber, int.Parse(name["PowerShell ".Length..]));
         session.Engine.InputRequested += request => Dispatcher.UIThread.Post(async () =>
         {
             try
@@ -240,7 +288,7 @@ public sealed partial class MainWindow : Window
         });
         Workbench.Sessions.Add(session);
         Workbench.SelectedSession = session;
-        NewFile();
+        if (createDocument) NewFile();
         DisplaySession();
         try
         {
@@ -264,7 +312,10 @@ public sealed partial class MainWindow : Window
     private void NewFile()
     {
         if (Workbench.SelectedSession is not { } session) return;
-        var file = new ScriptTab(new ScriptFile($"Untitled{++fileNumber}.ps1"));
+        string name;
+        do { name = $"Untitled{++fileNumber}.ps1"; }
+        while (Workbench.Sessions.SelectMany(candidate => candidate.Files).Any(tab => tab.File.Name == name));
+        var file = new ScriptTab(new ScriptFile(name));
         session.Files.Add(file);
         session.SelectedFile = file;
         DisplayFile();
@@ -373,8 +424,8 @@ public sealed partial class MainWindow : Window
         CommandList.IsEnabled = ready;
         var canEvaluate = paused && displayedSession?.Evaluating != true;
         CallStackList.IsEnabled = canEvaluate;
-        ConsoleEditor.IsReadOnly = !(ready || canEvaluate);
-        ScriptEditor.IsReadOnly = paused;
+        ConsoleEditor.IsReadOnly = closingInProgress || !(ready || canEvaluate);
+        ScriptEditor.IsReadOnly = closingInProgress || paused;
         if (!ready && !canEvaluate)
         {
             completionNotice = null;
@@ -403,6 +454,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ActAsync(string action)
     {
+        if (closingInProgress) return;
         var session = Workbench.SelectedSession;
         switch (action)
         {
@@ -410,6 +462,8 @@ public sealed partial class MainWindow : Window
             case "Open": await PickFilesAsync(); break;
             case "Save": if (displayedFile is not null) await SaveFileAsync(displayedFile); break;
             case "SaveAs": if (displayedFile is not null) await SaveFileAsync(displayedFile, true); break;
+            case "Encoding": await ChooseEncodingAsync(); break;
+            case "Reload": if (displayedFile is not null) await ReloadFileAsync(displayedFile); break;
             case "SaveAll":
                 foreach (var tab in Workbench.Sessions.SelectMany(s => s.Files).ToArray())
                     if (tab.File.IsDirty && !await SaveFileAsync(tab)) break;
@@ -550,12 +604,14 @@ public sealed partial class MainWindow : Window
                     await session.Engine.ExecuteAsync("Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force");
                 break;
             case "Options": await OptionsAsync(); break;
+            case "Print": await PrintScriptAsync(); break;
             case "About":
                 await Dialogs.ShowTextAsync(this, "About Iseberg",
                     $"Iseberg\nA cross-platform PowerShell ISE-style editor and terminal.\n\nPowerShell {session?.Engine.Version}\nAvalonia + AvaloniaEdit + PowerShell SDK\n\nSee README.md for implemented behavior and GitHub issues for remaining work.");
                 break;
         }
         if (action is "Copy" or "Cut" or "Paste" or "Undo" or "Redo" or "SelectAll") FocusInput(editTarget);
+        if (initialized && !closingInProgress && !windowClosed) await SaveWorkbenchAsync();
     }
 
     private async Task PickFilesAsync()
@@ -575,6 +631,7 @@ public sealed partial class MainWindow : Window
 
     public async Task OpenFileAsync(string path)
     {
+        if (windowClosed || closingInProgress) throw new InvalidOperationException("The workbench is closing.");
         if (Workbench.SelectedSession is not { } session) return;
         var fullPath = Path.GetFullPath(path);
         if (settings.WarnDuplicateFiles && Workbench.Sessions.Where(s => s != session).SelectMany(s => s.Files)
@@ -583,7 +640,10 @@ public sealed partial class MainWindow : Window
             return;
         var existing = session.Files.FirstOrDefault(tab => !tab.File.IsRemote && string.Equals(tab.File.Path, fullPath,
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
-        var tab = existing ?? new ScriptTab(await ScriptFile.OpenAsync(fullPath));
+        var file = existing is null ? await ReadFileAsync(session, fullPath, remote: false) : existing.File;
+        if (file is null) return;
+        if (windowClosed || closingInProgress) throw new InvalidOperationException("The workbench closed while reading the file.");
+        var tab = existing ?? new ScriptTab(file);
         if (existing is null)
         {
             tab.ReplaceBreakpoints(session.Breakpoints.Where(breakpoint => breakpoint.Spec.Kind == BreakpointKind.Line &&
@@ -593,6 +653,7 @@ public sealed partial class MainWindow : Window
         session.SelectedFile = tab;
         DisplayFile();
         RememberFile(fullPath);
+        if (initialized && !restoringWorkbench) await SaveWorkbenchAsync();
     }
 
     private async Task<bool> SaveFileAsync(ScriptTab tab, bool saveAs = false)
@@ -605,10 +666,7 @@ public sealed partial class MainWindow : Window
             if (remotePath is null || saveAs)
                 remotePath = await Dialogs.AskAsync(this, UiText.Get("SaveRemoteFile"), UiText.Get("RemoteFilePath"), remotePath ?? "");
             if (remotePath is null) return false;
-            if (!string.Equals(remotePath, tab.File.Path, StringComparison.Ordinal) && await owner.Engine.RemoteFileExistsAsync(remotePath) &&
-                await Dialogs.ChooseAsync(this, UiText.Get("SaveRemoteFile"), UiText.Get("RemoteOverwrite"), UiText.Get("Save"), UiText.Get("Cancel")) != UiText.Get("Save"))
-                return false;
-            await owner.Engine.SaveRemoteFileAsync(tab.File, remotePath);
+            if (!await SaveWithConflictCheckAsync(owner, tab, remotePath, remote: true)) return false;
             await autoSaveTask;
             recovery.Remove(tab.RecoveryId);
             if (previousRemotePath is not null && !string.Equals(previousRemotePath, tab.File.Path, StringComparison.Ordinal))
@@ -634,7 +692,7 @@ public sealed partial class MainWindow : Window
             path = result.TryGetLocalPath() ?? throw new IOException("Only local script files are supported.");
         }
         var previousPath = tab.File.Path;
-        await tab.File.SaveAsync(path);
+        if (!await SaveWithConflictCheckAsync(owner, tab, path, remote: false)) return false;
         await autoSaveTask;
         recovery.Remove(tab.RecoveryId);
         if (FileInCurrentRunspace(owner, tab) && (owner.Engine.State == SessionState.Ready || owner.Engine.IsDebuggerPaused))
@@ -674,7 +732,10 @@ public sealed partial class MainWindow : Window
     {
         if (!tab.File.IsDirty) return true;
         var result = await Dialogs.ChooseAsync(this, "Save changes", $"Save changes to {tab.File.Name}?", "Save", "Don't Save", "Cancel");
-        return result == "Don't Save" || (result == "Save" && await SaveFileAsync(tab));
+        if (result == "Don't Save") return true;
+        if (result != "Save" || !await SaveFileAsync(tab)) return false;
+        if (tab.File.IsDirty) throw new InvalidOperationException("The document was edited while saving. Closing was canceled to preserve those edits.");
+        return true;
     }
 
     private async Task CloseFileAsync(SessionModel session, ScriptTab tab)
@@ -990,7 +1051,9 @@ public sealed partial class MainWindow : Window
                 "Snippets" or "CreateSnippet" => displayedFile is not null && !paused,
                 "Fold" => settings.ShowOutlining,
                 "Close" or "CloseSession" => displayedSession is not null,
-                "Save" or "SaveAs" => displayedFile is not null,
+                "Save" or "SaveAs" or "Print" => displayedFile is not null,
+                "Encoding" => displayedFile is not null && ready && !closingInProgress,
+                "Reload" => displayedFile?.File.Path is not null && ready && !closingInProgress,
                 "Undo" or "Redo" or "Cut" or "Copy" or "Paste" or "SelectAll" => CanEdit(action),
                 "Replace" => !paused,
                 _ => true
@@ -1043,14 +1106,23 @@ public sealed partial class MainWindow : Window
             {
                 if (answer == "Recover")
                 {
-                    var tab = new ScriptTab(new ScriptFile(script.Name) { Text = script.Text });
-                    session.Files.Add(tab);
-                    session.SelectedFile = tab;
-                    await recovery.SaveAsync(tab.RecoveryId, tab.File);
+                    var owningSession = Workbench.Sessions.FirstOrDefault(candidate => candidate.Name == script.SessionName) ?? session;
+                    var target = restoredRecoveryTargets.GetValueOrDefault(script.Id, (owningSession, null));
+                    if (target.Placeholder is null && script.Path is null)
+                        target.Placeholder = target.Session.Files.FirstOrDefault(tab =>
+                            tab.File.Path is null && tab.File.Name == script.Name && tab.Document.TextLength == 0);
+                    var file = ScriptFile.FromRecovery(script.Name, script.Text, script.Encoding);
+                    var tab = new ScriptTab(file);
+                    if (target.Placeholder is not null) target.Session.Files.Remove(target.Placeholder);
+                    target.Session.Files.Add(tab);
+                    target.Session.SelectedFile = tab;
+                    Workbench.SelectedSession = target.Session;
+                    await recovery.SaveAsync(tab.RecoveryId, tab.File, target.Session.Name);
                 }
 
                 recovery.Remove(script.Id);
             }
+            DisplaySession();
             DisplayFile();
         }
         finally { recovering = false; }
@@ -1063,8 +1135,9 @@ public sealed partial class MainWindow : Window
         {
             await GuardAsync(async () =>
             {
-                foreach (var tab in Workbench.Sessions.SelectMany(s => s.Files).ToArray())
-                    await recovery.SaveAsync(tab.RecoveryId, tab.File);
+                foreach (var session in Workbench.Sessions.ToArray())
+                    foreach (var tab in session.Files.ToArray())
+                        await recovery.SaveAsync(tab.RecoveryId, tab.File, session.Name);
             });
         }
         finally { autoSaving = false; }
@@ -1147,6 +1220,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplySettings()
     {
+        CapturePaneGeometry();
         ScriptEditor.ShowLineNumbers = settings.ShowLineNumbers;
         ScriptEditor.WordWrap = settings.WordWrap;
         if (!settings.ScriptIntelliSense) completion?.Close();
@@ -1165,8 +1239,20 @@ public sealed partial class MainWindow : Window
         ApplySidePaneLayout();
         var right = settings.Layout == "Right";
         var maximized = settings.Layout == "Maximized";
-        PaneGrid.RowDefinitions = new(right || maximized ? "*" : "3*,5,2*");
-        PaneGrid.ColumnDefinitions = new(right ? "2*,5,3*" : "*");
+        var ratio = right ? settings.Geometry.RightScriptRatio : settings.Geometry.TopScriptRatio;
+        PaneGrid.RowDefinitions = right || maximized ? new RowDefinitions("*") : new RowDefinitions
+        {
+            new() { Height = new GridLength(ratio, GridUnitType.Star) },
+            new() { Height = new GridLength(5) },
+            new() { Height = new GridLength(1 - ratio, GridUnitType.Star) }
+        };
+        PaneGrid.ColumnDefinitions = !right ? new ColumnDefinitions("*") : new ColumnDefinitions
+        {
+            new() { Width = new GridLength(1 - ratio, GridUnitType.Star) },
+            new() { Width = new GridLength(5) },
+            new() { Width = new GridLength(ratio, GridUnitType.Star) }
+        };
+        appliedPaneLayout = settings.Layout;
         Grid.SetRow(ScriptPane, 0);
         Grid.SetColumn(ScriptPane, right ? 2 : 0);
         Grid.SetRow(ConsolePane, right ? 0 : 2);
@@ -1574,6 +1660,8 @@ public sealed partial class MainWindow : Window
         var previousFocus = editTarget;
         var dialog = new OptionsWindow(settings, async updated =>
         {
+            CapturePaneGeometry();
+            updated.Geometry = settings.Copy().Geometry;
             updated.DebuggerSessions = settings.Copy().DebuggerSessions;
             updated.Normalize();
             await updated.SaveAsync(settingsFilePath);
@@ -1627,6 +1715,7 @@ public sealed partial class MainWindow : Window
             Key.Pause when ctrl => e.KeyModifiers.HasFlag(KeyModifiers.Alt) ? "BreakAll" : "Stop",
             Key.N when ctrl => "New",
             Key.O when ctrl => "Open",
+            Key.P when ctrl => "Print",
             Key.S when ctrl => shift ? "SaveAs" : "Save",
             Key.W when ctrl => shift ? "CloseSession" : "Close",
             Key.T when ctrl => "NewSession",
@@ -1666,15 +1755,37 @@ public sealed partial class MainWindow : Window
         e.Cancel = true;
         if (closingInProgress) return;
         closingInProgress = true;
+        RefreshState();
         await GuardAsync(async () =>
         {
-            foreach (var session in Workbench.Sessions.ToArray())
-                if (!await CloseSessionAsync(session)) { closingInProgress = false; return; }
+            foreach (var session in Workbench.Sessions)
+            {
+                if (session.Engine.State is SessionState.Running or SessionState.Debugging)
+                {
+                    if (await Dialogs.ChooseAsync(this, "Stop execution", "Stop the running command and exit?", "Stop", "Cancel") != "Stop")
+                        return;
+                    await session.Engine.StopAsync();
+                }
+                foreach (var tab in session.Files)
+                    if (!await ConfirmSaveAsync(tab)) return;
+                if (session.Engine.State == SessionState.Ready) await RefreshDebuggerAsync(session, reconcile: true);
+                await SaveDebuggerSettingsAsync(session);
+            }
+            await autoSaveTask;
+            CapturePaneGeometry();
+            CaptureWindowGeometry();
             await settings.SaveAsync(settingsFilePath);
+            await SaveWorkbenchAsync(released: true);
+            foreach (var session in Workbench.Sessions)
+            {
+                foreach (var tab in session.Files) recovery.Remove(tab.RecoveryId);
+                await session.Engine.DisposeAsync();
+            }
             closingApproved = true;
             Close();
         });
         closingInProgress = false;
+        if (!windowClosed) RefreshState();
     }
 
     private async Task GuardAsync(Func<Task> action)
