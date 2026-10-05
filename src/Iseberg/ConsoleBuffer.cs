@@ -19,6 +19,8 @@ public sealed class ConsoleBuffer : IReadOnlySectionProvider
     private AnsiOutputParser ansi = new();
     private bool warnedUnsupportedControl;
     public IReadOnlyList<OutputEntry> PromptParts { get; private set; } = [];
+    public event Action<IReadOnlyList<OutputEntry>>? OutputAppended;
+    public event Action? Cleared;
     private string? analyzedInput;
     private ScriptAnalysis? inputAnalysis;
     public ScriptAnalysis InputAnalysis
@@ -106,9 +108,10 @@ public sealed class ConsoleBuffer : IReadOnlySectionProvider
 
     public void AppendBatch(IEnumerable<OutputEntry> entries)
     {
+        var batch = entries.ToArray();
         Mutate(() =>
         {
-            foreach (var entry in entries)
+            foreach (var entry in batch)
             {
                 if (entry.Kind == OutputKind.Command)
                 {
@@ -126,6 +129,7 @@ public sealed class ConsoleBuffer : IReadOnlySectionProvider
             }
             Trim();
         });
+        OutputAppended?.Invoke(batch);
     }
 
     private void AppendEntry(OutputEntry entry, IReadOnlyList<OutputEntry>? promptStyles = null)
@@ -170,6 +174,7 @@ public sealed class ConsoleBuffer : IReadOnlySectionProvider
             ansi = new();
             warnedUnsupportedControl = false;
         });
+        Cleared?.Invoke();
     }
 
     private void Mutate(Action action)

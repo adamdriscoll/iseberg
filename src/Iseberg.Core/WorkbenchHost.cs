@@ -8,7 +8,7 @@ using System.Security;
 namespace Iseberg.Core;
 
 internal sealed record WorkbenchHostServices(Func<ShowCommandRequest, string?> ShowCommand, Action<string> ShowCommandError,
-    Func<bool> IsRunspacePushed);
+    Func<bool> IsRunspacePushed, Func<TerminalRequest, int?> RunTerminal);
 
 internal sealed class WorkbenchHost : PSHost, IHostSupportsInteractiveSession
 {
@@ -25,10 +25,10 @@ internal sealed class WorkbenchHost : PSHost, IHostSupportsInteractiveSession
     public WorkbenchHost(Action<OutputEntry> write, Func<InputRequest, string> read,
         Action<ProgressUpdate> progress, Action clear, Func<ShowCommandRequest, string?> showCommand,
         Func<Runspace> currentRunspace, Func<bool> isPushed, Action<Runspace> push, Action pop,
-        Action enterNested, Action exitNested, Action<string> showCommandError)
+        Action enterNested, Action exitNested, Action<string> showCommandError, Func<TerminalRequest, int?> runTerminal)
     {
         ui = new(write, read, progress, clear);
-        privateData = PSObject.AsPSObject(new WorkbenchHostServices(showCommand, showCommandError, isPushed));
+        privateData = PSObject.AsPSObject(new WorkbenchHostServices(showCommand, showCommandError, isPushed, runTerminal));
         this.currentRunspace = currentRunspace;
         this.isPushed = isPushed;
         this.push = push;

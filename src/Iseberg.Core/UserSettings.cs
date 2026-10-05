@@ -14,6 +14,7 @@ public sealed class UserSettings
     public bool WarnDuplicateFiles { get; set; } = true;
     public bool PromptToSaveBeforeRun { get; set; } = true;
     public bool ConsoleIntelliSense { get; set; } = true;
+    public string ConsoleMode { get; set; } = "Classic";
     public bool ConsoleCompletionOnEnter { get; set; } = true;
     public bool ScriptIntelliSense { get; set; } = true;
     public bool ScriptCompletionOnEnter { get; set; } = true;
@@ -65,6 +66,7 @@ public sealed class UserSettings
         if (RecentFiles.Any(string.IsNullOrWhiteSpace)) throw new InvalidDataException("A recent-file path is empty.");
         if (RecentFiles.Count > RecentFileCount) RecentFiles.RemoveRange(RecentFileCount, RecentFiles.Count - RecentFileCount);
         if (Layout is not ("Top" or "Right" or "Maximized")) Layout = "Top";
+        if (ConsoleMode is not ("Classic" or "Devolutions")) ConsoleMode = "Classic";
         DebuggerSessions ??= [];
         if (DebuggerSessions.Any(session => session is null || string.IsNullOrWhiteSpace(session.Name)) ||
             DebuggerSessions.DistinctBy(session => session.Name).Count() != DebuggerSessions.Count)

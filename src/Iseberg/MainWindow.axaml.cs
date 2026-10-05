@@ -5,6 +5,7 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -81,6 +82,7 @@ public sealed partial class MainWindow : Window
         {
             foreach (var session in e.OldItems?.OfType<SessionModel>() ?? [])
             {
+                RemoveTerminalConsole(session);
                 DetachDebugger(session);
                 if (showCommandHandlers.Remove(session, out var handler))
                     session.Engine.ShowCommandRequested -= handler;
@@ -91,6 +93,7 @@ public sealed partial class MainWindow : Window
             }
             foreach (var session in e.NewItems?.OfType<SessionModel>() ?? [])
             {
+                AttachTerminalSession(session);
                 AttachDebugger(session);
                 Action<ShowCommandRequest> handler = request =>
                     Dispatcher.UIThread.Post(() => ShowConsoleCommand(session, request));
@@ -167,6 +170,7 @@ public sealed partial class MainWindow : Window
             if (e.Source is not Control source) return;
             var input = source.GetVisualAncestors().Prepend(source).FirstOrDefault(v => v is TextBox or TextEditor);
             if (input is Control control) { editTarget = control; UpdateMenuState(); }
+            else if (source is Devolutions.Terminal.TermControl terminal) { editTarget = terminal; UpdateMenuState(); }
         }, RoutingStrategies.Bubble, handledEventsToo: true);
         ConsoleEditor.ContextMenu = CreateEditorMenu(ConsoleEditor);
         ScriptEditor.ContextMenu = CreateEditorMenu(ScriptEditor);
@@ -182,6 +186,7 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) =>
         {
             windowClosed = true;
+            CloseTerminalConsoles();
             ++commandRequestVersion;
             windowCancellation.Cancel();
             outputTimer.Stop(); analysisTimer.Stop(); autoSaveTimer.Stop(); completionTimer.Stop();
@@ -248,7 +253,7 @@ public sealed partial class MainWindow : Window
         {
             await session.Engine.InitializeAsync();
             session.Console.HidePrompt();
-            session.Console.Append(new($"PowerShell {session.Engine.Version}\nCopyright (c) Microsoft Corporation.\n\n", OutputKind.Output));
+            session.ClassicConsole.Append(new($"PowerShell {session.Engine.Version}\nCopyright (c) Microsoft Corporation.\n\n", OutputKind.Output));
             if (settings.LoadProfiles) await LoadProfilesAsync(session);
             await RestoreDebuggerSettingsAsync(session);
             if (connection is not null) await session.Engine.ConnectAsync(connection);
@@ -256,7 +261,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception exception) when (exception is RuntimeException or InvalidOperationException or IOException)
         {
-            session.Console.Append(new($"Session initialization failed: {exception.Message}\n", OutputKind.Error));
+            session.ClassicConsole.Append(new($"Session initialization failed: {exception.Message}\n", OutputKind.Error));
             await ReportErrorAsync("Could not initialize PowerShell", exception);
         }
         RefreshState();
@@ -303,6 +308,7 @@ public sealed partial class MainWindow : Window
         ConsoleEditor.Document = next.ConsoleDocument;
         ConsoleEditor.TextArea.ReadOnlySectionProvider = next.Console;
         ConsoleEditor.CaretOffset = Math.Min(next.ConsoleCaretOffset, next.ConsoleDocument.TextLength);
+        DisplayTerminalConsole();
         ProgressPanel.IsVisible = false;
         DisplayFile();
         RefreshState();
@@ -388,7 +394,8 @@ public sealed partial class MainWindow : Window
         StatusText.Text = state switch
         {
             SessionState.Ready => completionNotice ?? UiText.Get("Ready"),
-            SessionState.Running => UiText.Get(displayedSession?.EditingBreakpoints == true ? "PauseForBreakpointEdit" : "Running"),
+            SessionState.Running => UiText.Get(displayedSession is { } running && nativeTerminals.ContainsKey(running)
+                ? "TerminalRunning" : displayedSession?.EditingBreakpoints == true ? "PauseForBreakpointEdit" : "Running"),
             SessionState.Debugging => string.Format(UiText.Get("DebugStatus"), displayedSession?.DebugLocation?.Line),
             SessionState.NestedPrompt => UiText.Get("NestedPromptStatus"),
             SessionState.Disposed => UiText.Get("SessionClosed"),
@@ -428,9 +435,9 @@ public sealed partial class MainWindow : Window
             case "Undo": if (editTarget is TextBox undoBox) undoBox.Undo(); else (editTarget as TextEditor ?? ScriptEditor).Undo(); break;
             case "Redo": if (editTarget is TextBox redoBox) redoBox.Redo(); else (editTarget as TextEditor ?? ScriptEditor).Redo(); break;
             case "Cut": if (editTarget is TextBox cutBox) cutBox.Cut(); else (editTarget as TextEditor ?? ScriptEditor).Cut(); break;
-            case "Copy": if (editTarget is TextBox copyBox) copyBox.Copy(); else (editTarget as TextEditor ?? ScriptEditor).Copy(); break;
-            case "Paste": if (editTarget is TextBox pasteBox) pasteBox.Paste(); else (editTarget as TextEditor ?? ScriptEditor).Paste(); break;
-            case "SelectAll": if (editTarget is TextBox selectBox) selectBox.SelectAll(); else (editTarget as TextEditor ?? ScriptEditor).SelectAll(); break;
+            case "Copy": if (editTarget is Devolutions.Terminal.TermControl copyTerminal) await copyTerminal.CopyAsync(); else if (editTarget is TextBox copyBox) copyBox.Copy(); else (editTarget as TextEditor ?? ScriptEditor).Copy(); break;
+            case "Paste": if (editTarget is Devolutions.Terminal.TermControl pasteTerminal && IsNativeTerminal(pasteTerminal)) await pasteTerminal.PasteAsync(); else if (editTarget is Devolutions.Terminal.TermControl) { FocusConsoleInput(); ConsoleEditor.Paste(); } else if (editTarget is TextBox pasteBox) pasteBox.Paste(); else (editTarget as TextEditor ?? ScriptEditor).Paste(); break;
+            case "SelectAll": if (editTarget is Devolutions.Terminal.TermControl selectTerminal) selectTerminal.SelectAll(); else if (editTarget is TextBox selectBox) selectBox.SelectAll(); else (editTarget as TextEditor ?? ScriptEditor).SelectAll(); break;
             case "Find": search.Open(); search.Reactivate(); break;
             case "Replace": await ReplaceAsync(); break;
             case "GoToLine": await GoToLineAsync(); break;
@@ -508,13 +515,23 @@ public sealed partial class MainWindow : Window
                     RenderDebugger();
                 }
                 break;
-            case "Complete": await ShowCompletionAsync(); break;
+            case "Complete":
+                if (editTarget is Devolutions.Terminal.TermControl) { FocusConsoleInput(); editTarget = ConsoleEditor; }
+                await ShowCompletionAsync();
+                break;
             case "ShowCommand": await ShowCommandAsync(); break;
             case "Snippets": await InsertSnippetAsync(); break;
             case "CreateSnippet": await CreateSnippetAsync(); break;
             case "ImportSnippets": await ImportSnippetsAsync(); break;
             case "ExportSnippets": await ExportSnippetsAsync(); break;
             case "Clear": session?.ClearOutput(); break;
+            case "ClassicConsole": case "DevolutionsConsole":
+                EnsureConsoleModeCanChange();
+                settings.ConsoleMode = action == "DevolutionsConsole" ? "Devolutions" : "Classic";
+                ApplySettings();
+                await settings.SaveAsync(settingsFilePath);
+                FocusConsoleInput();
+                break;
             case "Top": case "Right": case "Maximized": settings.Layout = action; ApplySettings(); break;
             case "Commands": settings.ShowCommands = !settings.ShowCommands; ApplySettings(); break;
             case "LineNumbers": settings.ShowLineNumbers = !settings.ShowLineNumbers; ApplySettings(); break;
@@ -837,7 +854,8 @@ public sealed partial class MainWindow : Window
                 FocusConsoleInput();
             });
         }
-        else if (e.Key is Key.Up or Key.Down && e.KeyModifiers == KeyModifiers.None && !session.Input.Contains('\n') &&
+        else if (e.Key is Key.Up or Key.Down && e.KeyModifiers == KeyModifiers.None &&
+                 (!session.Input.Contains('\n') || session.HistoryIndex < session.History.Count && session.Input == session.History[session.HistoryIndex]) &&
                  ConsoleEditor.CaretOffset >= session.Console.InputStart && completion is null)
         {
             e.Handled = true;
@@ -856,6 +874,8 @@ public sealed partial class MainWindow : Window
 
     private void FocusConsoleInput()
     {
+        if (displayedSession is { } session && nativeTerminals.TryGetValue(session, out var terminal))
+        { terminal.Focus(); return; }
         ConsoleEditor.TextArea.Focus();
         ConsoleEditor.CaretOffset = ConsoleEditor.Document.TextLength;
         ConsoleEditor.TextArea.ClearSelection();
@@ -902,6 +922,7 @@ public sealed partial class MainWindow : Window
         ConsoleEditor.TextArea.Caret.CaretBrush = ConsoleEditor.Foreground;
         ScriptEditor.TextArea.TextView.Redraw();
         ConsoleEditor.TextArea.TextView.Redraw();
+        RefreshTerminalAppearance();
     }
 
     private ContextMenu CreateEditorMenu(Control editor)
@@ -944,7 +965,7 @@ public sealed partial class MainWindow : Window
             var key = action switch { "Top" => "PaneTop", "Right" => "PaneRight", "Maximized" => "PaneMaximized", "Options" => "OptionsMenu", _ => action };
             item.Header = UiText.Get(key);
             item.Icon = new ToolbarIcon { Kind = action };
-            if (action is "Top" or "Right" or "Maximized" or "Commands" or "LineNumbers" or "WordWrap" or "DebuggerPanes")
+            if (action is "Top" or "Right" or "Maximized" or "Commands" or "LineNumbers" or "WordWrap" or "DebuggerPanes" or "ClassicConsole" or "DevolutionsConsole")
                 item.ToggleType = MenuItemToggleType.CheckBox;
             AutomationProperties.SetName(item, UiText.Get(key).Replace("_", ""));
         }
@@ -978,6 +999,8 @@ public sealed partial class MainWindow : Window
                 "WordWrap" => settings.WordWrap,
                 "AutoProfiles" => settings.LoadProfiles,
                 "DebuggerPanes" => displayedSession?.DebuggerPaneVisible == true,
+                "ClassicConsole" => settings.ConsoleMode == "Classic",
+                "DevolutionsConsole" => settings.ConsoleMode == "Devolutions",
                 _ => false
             };
             item.IsEnabled = action switch
@@ -1000,6 +1023,7 @@ public sealed partial class MainWindow : Window
                 "Save" or "SaveAs" => displayedFile is not null,
                 "Undo" or "Redo" or "Cut" or "Copy" or "Paste" or "SelectAll" => CanEdit(action),
                 "Replace" => !paused,
+                "ClassicConsole" or "DevolutionsConsole" => nativeTerminals.Count == 0,
                 _ => true
             };
         }
@@ -1008,6 +1032,14 @@ public sealed partial class MainWindow : Window
     private bool CanEdit(string action)
     {
         var target = editTarget ?? ScriptEditor;
+        if (target is Devolutions.Terminal.TermControl terminal)
+            return action switch
+            {
+                "Copy" => terminal.HasSelection,
+                "SelectAll" => true,
+                "Paste" => IsNativeTerminal(terminal) || !ConsoleEditor.IsReadOnly,
+                _ => false
+            };
         if (target is TextBox box)
             return action switch
             {
@@ -1154,6 +1186,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplySettings()
     {
+        ApplyConsoleMode();
         ScriptEditor.ShowLineNumbers = settings.ShowLineNumbers;
         ScriptEditor.WordWrap = settings.WordWrap;
         if (!settings.ScriptIntelliSense) completion?.Close();
@@ -1227,6 +1260,7 @@ public sealed partial class MainWindow : Window
     private void SetZoom(double percent)
     {
         ScriptEditor.FontSize = ConsoleEditor.FontSize = settings.FontSize * 4 / 3 * percent / 100;
+        SetTerminalZoom(percent);
         ZoomText.Text = $"{percent:0}%";
     }
 
@@ -1581,6 +1615,7 @@ public sealed partial class MainWindow : Window
         var previousFocus = editTarget;
         var dialog = new OptionsWindow(settings, async updated =>
         {
+            if (updated.ConsoleMode != settings.ConsoleMode) EnsureConsoleModeCanChange();
             updated.DebuggerSessions = settings.Copy().DebuggerSessions;
             updated.Normalize();
             await updated.SaveAsync(settingsFilePath);
@@ -1597,6 +1632,9 @@ public sealed partial class MainWindow : Window
         if (e.Handled) return;
         var ctrl = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
         var shift = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        if (displayedSession is { } nativeSession && nativeTerminals.TryGetValue(nativeSession, out var native) &&
+            native.IsKeyboardFocusWithin && !(e.Key == Key.Pause && ctrl) && !(e.Key == Key.F5 && shift))
+            return;
         if (e.Key == Key.F10 && displayedSession?.Engine.State != SessionState.Debugging)
         {
             WorkbenchMenu.SelectedIndex = 0;

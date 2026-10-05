@@ -14,10 +14,12 @@ namespace Iseberg.Tests;
 [Collection(PowerShellPolicyCollection.Name)]
 public sealed class HostDesktopTests
 {
-    [AvaloniaFact]
-    public async Task MultipleChoiceDialogSubmitsSelectionAndStopClosesPendingInput()
+    [AvaloniaTheory]
+    [InlineData("Classic")]
+    [InlineData("Devolutions")]
+    public async Task MultipleChoiceDialogSubmitsSelectionAndStopClosesPendingInput(string consoleMode)
     {
-        var owner = new MainWindow([], initializeOnOpen: false);
+        var owner = new MainWindow([], initializeOnOpen: false, preferences: new() { ConsoleMode = consoleMode });
         var session = new SessionModel("PowerShell 1");
         await session.Engine.InitializeAsync();
         owner.Workbench.Sessions.Add(session);
@@ -40,7 +42,7 @@ public sealed class HostDesktopTests
             dialog.FindControl<Button>("HostInputSubmit")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await execution.WaitAsync(TimeSpan.FromSeconds(10));
             session.FlushOutput();
-            Assert.Contains("selected=0,1", session.ConsoleDocument.Text);
+            Assert.Contains("selected=0,1", session.ClassicConsole.Document.Text);
             execution = session.Engine.ExecuteAsync("Read-Host -AsSecureString 'password'");
             await WaitFor(() => owner.OwnedWindows.OfType<HostInputWindow>().Any());
             dialog = owner.OwnedWindows.OfType<HostInputWindow>().Single();
@@ -75,10 +77,12 @@ public sealed class HostDesktopTests
         finally { owner.Close(); }
     }
 
-    [AvaloniaFact]
-    public async Task NestedPromptConsoleRemainsEditableAndRestoresPromptOnExit()
+    [AvaloniaTheory]
+    [InlineData("Classic")]
+    [InlineData("Devolutions")]
+    public async Task NestedPromptConsoleRemainsEditableAndRestoresPromptOnExit(string consoleMode)
     {
-        var owner = new MainWindow([], initializeOnOpen: false);
+        var owner = new MainWindow([], initializeOnOpen: false, preferences: new() { ConsoleMode = consoleMode });
         var session = new SessionModel("PowerShell 1");
         await session.Engine.InitializeAsync();
         owner.Workbench.Sessions.Add(session);
@@ -99,7 +103,7 @@ public sealed class HostDesktopTests
             editor.TextArea.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
             await WaitFor(() => session.Engine.IsNestedPromptActive && session.Input == "");
             session.FlushOutput();
-            Assert.Contains("nested-ui-output", session.ConsoleDocument.Text);
+            Assert.Contains("nested-ui-output", session.ClassicConsole.Document.Text);
             session.Input = "exit";
             editor.CaretOffset = editor.Document.TextLength;
             editor.TextArea.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });

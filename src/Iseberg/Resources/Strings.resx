@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="ConsoleMode" xml:space="preserve"><value>Console</value></data>
+  <data name="ClassicConsole" xml:space="preserve"><value>Classic</value></data>
+  <data name="DevolutionsConsole" xml:space="preserve"><value>Devolutions</value></data>
+  <data name="TerminalOutput" xml:space="preserve"><value>PowerShell terminal output</value></data>
+  <data name="TerminalRunning" xml:space="preserve"><value>Interactive application - input goes directly to the terminal. Ctrl+Break stops it.</value></data>
+  <data name="TerminalModeBusy" xml:space="preserve"><value>Stop the interactive terminal application before switching consoles.</value></data>
+  <data name="TerminalFailure" xml:space="preserve"><value>Terminal failed</value></data>
   <data name="StartupFailureTitle" xml:space="preserve"><value>Iseberg could not start</value></data>
   <data name="NestedPromptStatus" xml:space="preserve"><value>Nested prompt - enter exit to return, or Stop to cancel execution.</value></data>
   <data name="CommandErrorTitle" xml:space="preserve"><value>Show-Command execution errors</value></data>

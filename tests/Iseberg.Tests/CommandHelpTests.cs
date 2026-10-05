@@ -432,8 +432,9 @@ public sealed class CommandHelpTests
         window.Show();
         Dispatcher.UIThread.RunJobs();
         var content = Assert.IsAssignableFrom<Control>(window.Content);
-        content.Measure(new Size(window.Width, double.IsNaN(window.Height) ? 350 : window.Height));
-        content.Arrange(new Rect(default, content.DesiredSize));
+        var size = new Size(window.Width, double.IsNaN(window.Height) ? 350 : window.Height);
+        content.Measure(size);
+        content.Arrange(new Rect(default, size));
         Dispatcher.UIThread.RunJobs();
     }
 

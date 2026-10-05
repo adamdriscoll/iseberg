@@ -117,7 +117,12 @@ public sealed class SessionModel : ObservableModel
     internal void RefreshRunspaceIdentity() => Changed(nameof(DisplayName));
     public PowerShellSession Engine { get; } = new();
     public ObservableCollection<ScriptTab> Files { get; } = [];
-    public ConsoleBuffer Console { get; } = new();
+    public ConsoleBuffer ClassicConsole { get; } = new();
+    private ConsoleBuffer terminalInput { get; } = new();
+    public ConsoleBuffer Console => UseDevolutionsConsole ? terminalInput : ClassicConsole;
+    public bool UseDevolutionsConsole { get; private set; }
+    public Queue<OutputEntry> TerminalOutput { get; } = new();
+    private int terminalOutputLength;
     public TextDocument ConsoleDocument => Console.Document;
     public List<ConsoleBuffer.Span> OutputSpans => Console.Spans;
     public List<string> History { get; } = [];
@@ -152,28 +157,59 @@ public sealed class SessionModel : ObservableModel
     {
         Name = name;
         Engine.Output += output.Enqueue;
+        ClassicConsole.OutputAppended += entries =>
+        {
+            foreach (var entry in entries)
+            {
+                // Bound replay independently of the VT screen's scrollback.
+                var retained = entry.Text.Length > 500_000
+                    ? entry with { Text = entry.Text[^500_000..], CodeStart = 0, Kind = OutputKind.Output } : entry;
+                TerminalOutput.Enqueue(retained);
+                terminalOutputLength += retained.Text.Length;
+            }
+            while (terminalOutputLength > 500_000 && TerminalOutput.Count > 1)
+                terminalOutputLength -= TerminalOutput.Dequeue().Text.Length;
+        };
+        ClassicConsole.Cleared += () => { TerminalOutput.Clear(); terminalOutputLength = 0; };
     }
+
+    public void SetConsoleMode(bool useDevolutions)
+    {
+        if (useDevolutions == UseDevolutionsConsole) return;
+        var input = Input;
+        UseDevolutionsConsole = useDevolutions;
+        Console.Input = input;
+        Completion = null;
+        FlushOutput();
+        ConsoleCaretOffset = ConsoleDocument.TextLength;
+    }
+
+    public void QueueOutput(OutputEntry entry) => output.Enqueue(entry);
 
     public bool FlushOutput()
     {
         var changed = !output.IsEmpty;
         var batch = new List<OutputEntry>();
         while (batch.Count < 2000 && output.TryDequeue(out var entry)) batch.Add(entry);
-        if (batch.Count > 0) Console.AppendBatch(batch);
+        if (batch.Count > 0) ClassicConsole.AppendBatch(batch);
         if ((Engine.State == SessionState.Ready || Engine.IsDebuggerPaused || Engine.IsNestedPromptActive) && !Evaluating && output.IsEmpty)
         {
-            changed |= Console.CompleteOutput();
+            changed |= ClassicConsole.CompleteOutput();
             changed |= !Console.HasPrompt;
-            Console.ShowPrompt(Engine.IsNestedPromptActive ? Engine.NestedPrompt :
-                Engine.State == SessionState.Debugging ? Engine.DebugPrompt : Engine.Prompt);
+            var prompt = Engine.IsNestedPromptActive ? Engine.NestedPrompt :
+                Engine.State == SessionState.Debugging ? Engine.DebugPrompt : Engine.Prompt;
+            ClassicConsole.ShowPrompt(prompt);
+            terminalInput.ShowPrompt(prompt);
         }
+        else { ClassicConsole.HidePrompt(); terminalInput.HidePrompt(); }
         return changed;
     }
 
     public void ClearOutput()
     {
         while (output.TryDequeue(out _)) { }
-        Console.Clear();
+        ClassicConsole.Clear();
+        terminalInput.Clear();
     }
 }
 

@@ -58,10 +58,15 @@ public sealed class ToolbarIcon : Control
                 Shape("M5,1 L12,1 12,7 5,7 Z", Brushes.White);
                 Shape("M7,15 L14,8 17,11 10,18 6,18 Z", Brushes.Goldenrod); break;
             case "NewSession":
+            case "ClassicConsole": case "DevolutionsConsole":
                 Shape("M1,2 L17,2 17,16 1,16 Z", Brushes.SteelBlue);
                 Shape("M4,5 L7,8 4,11 M9,11 L13,11", Brushes.Transparent);
-                context.DrawLine(new Pen(ink, 2), new(11, 3), new(17, 3));
-                context.DrawLine(new Pen(ink, 2), new(14, 0), new(14, 6)); break;
+                if (Kind == "NewSession")
+                {
+                    context.DrawLine(new Pen(ink, 2), new(11, 3), new(17, 3));
+                    context.DrawLine(new Pen(ink, 2), new(14, 0), new(14, 6));
+                }
+                break;
             case "NewRemoteSession":
                 Shape("M1,1 L10,1 10,9 1,9 Z M8,9 L17,9 17,17 8,17 Z", Brushes.SteelBlue);
                 Shape("M3,4 L6,6 3,8 M10,12 L13,14 10,16 M11,4 L15,4 15,8", Brushes.Transparent);

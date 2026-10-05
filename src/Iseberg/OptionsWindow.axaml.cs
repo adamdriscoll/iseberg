@@ -37,6 +37,7 @@ public sealed partial class OptionsWindow : Window
         EditorFontSize.ItemsSource = new double[] { 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72 }
             .Append(draft.FontSize).Distinct().Order().ToArray();
         PanePosition.ItemsSource = layouts.Select(UiText.Get).ToArray();
+        ConsoleMode.ItemsSource = new[] { UiText.Get("ClassicConsole"), UiText.Get("DevolutionsConsole") };
         CompletionTimeout.ItemsSource = Enumerable.Range(1, 30).ToArray();
         NamedColor.ItemsSource = typeof(Colors).GetProperties().Where(p => p.PropertyType == typeof(Color) && p.Name != "Transparent")
             .Select(p => p.Name).Order().ToArray();
@@ -72,7 +73,7 @@ public sealed partial class OptionsWindow : Window
                 if (box == FixedWidthOnly) PopulateFonts();
                 UpdateDraft();
             };
-        foreach (var combo in new[] { EditorFont, EditorFontSize, PanePosition, CompletionTimeout })
+        foreach (var combo in new[] { EditorFont, EditorFontSize, PanePosition, CompletionTimeout, ConsoleMode })
             combo.SelectionChanged += (_, _) => UpdateDraft();
         AutoSaveInterval.TextChanged += (_, _) => UpdateDraft();
         RecentFileCount.TextChanged += (_, _) => UpdateDraft();
@@ -162,6 +163,7 @@ public sealed partial class OptionsWindow : Window
         DefaultSnippets.IsChecked = draft.UseDefaultSnippets;
         FixedWidthOnly.IsChecked = draft.FixedWidthFontsOnly;
         PanePosition.SelectedIndex = Array.IndexOf(layouts, draft.Layout);
+        ConsoleMode.SelectedIndex = draft.ConsoleMode == "Devolutions" ? 1 : 0;
         CompletionTimeout.SelectedItem = draft.IntelliSenseTimeoutSeconds;
         AutoSaveInterval.Text = draft.AutoSaveMinutes.ToString(CultureInfo.InvariantCulture);
         RecentFileCount.Text = draft.RecentFileCount.ToString(CultureInfo.InvariantCulture);
@@ -211,6 +213,7 @@ public sealed partial class OptionsWindow : Window
         draft.UseDefaultSnippets = DefaultSnippets.IsChecked == true;
         draft.FixedWidthFontsOnly = FixedWidthOnly.IsChecked == true;
         draft.Layout = layouts[Math.Max(0, PanePosition.SelectedIndex)];
+        draft.ConsoleMode = ConsoleMode.SelectedIndex == 1 ? "Devolutions" : "Classic";
         if (CompletionTimeout.SelectedItem is int timeout) draft.IntelliSenseTimeoutSeconds = timeout;
         if (EditorFont.SelectedItem is string font) draft.FontFamily = font;
         if (EditorFontSize.SelectedItem is double size) draft.FontSize = size;

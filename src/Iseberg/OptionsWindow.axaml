@@ -60,6 +60,8 @@
       <CheckBox x:Name="PromptToSave" Canvas.Left="46" Canvas.Top="105" Content="{local:Ui PromptToSave}" />
       <TextBlock Canvas.Left="50" Canvas.Top="138" Text="{local:Ui PanePosition}" />
       <ComboBox x:Name="PanePosition" Canvas.Left="168" Canvas.Top="135" Width="80" AutomationProperties.Name="{local:Ui PanePosition}" />
+      <TextBlock Canvas.Left="275" Canvas.Top="138" Text="{local:Ui ConsoleMode}" />
+      <ComboBox x:Name="ConsoleMode" Canvas.Left="340" Canvas.Top="135" Width="175" AutomationProperties.Name="{local:Ui ConsoleMode}" />
       <Border x:Name="IntelliSenseGroup" Canvas.Top="175" Width="526" Height="155" CornerRadius="2"
               BorderThickness="1" BorderBrush="{DynamicResource OptionsGroupBrush}" />
       <TextBlock Canvas.Left="6" Canvas.Top="168" Background="{DynamicResource DialogBrush}" Padding="2,0" Text="{local:Ui IntelliSense}" />

@@ -51,6 +51,9 @@
         <MenuItem Header="_Word Wrap" Tag="WordWrap" Click="OnAction" />
         <MenuItem Header="Expand / Collapse Outlining" Tag="Fold" Click="OnAction" />
         <Separator />
+        <MenuItem Tag="ClassicConsole" Click="OnAction" />
+        <MenuItem Tag="DevolutionsConsole" Click="OnAction" />
+        <Separator />
         <MenuItem Header="Go to _Script Pane" InputGesture="Ctrl+I" Tag="FocusScript" Click="OnAction" />
         <MenuItem Header="Go to C_onsole Pane" InputGesture="Ctrl+D" Tag="FocusConsole" Click="OnAction" />
         <MenuItem Header="Zoom _In" InputGesture="Ctrl+OemPlus" Tag="ZoomIn" Click="OnAction" />
@@ -152,13 +155,16 @@
           <TextBlock Grid.Row="2" x:Name="Diagnostics" Foreground="{DynamicResource WindowTextBrush}" Background="{DynamicResource WindowBrush}" Padding="5,2" IsVisible="False" TextWrapping="Wrap" MaxHeight="45" AutomationProperties.Name="Script diagnostics" />
         </Grid>
         <GridSplitter x:Name="PaneSplitter" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="{DynamicResource ControlBrush}" AutomationProperties.Name="Script and console pane divider" />
-        <Grid x:Name="ConsolePane" Grid.Row="2" RowDefinitions="*,Auto" Background="#012456">
+        <Grid x:Name="ConsolePane" Grid.Row="2" RowDefinitions="0,*,Auto" Background="#012456">
+          <local:TerminalOutputHost x:Name="TerminalOutputHost" IsVisible="False" ClipToBounds="True"
+                          HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
           <local:AccessibleTextEditor x:Name="ConsoleEditor"
+                           Grid.Row="1"
                            FontFamily="Consolas, Cascadia Code, DejaVu Sans Mono, Menlo, monospace"
                            FontSize="16" Background="#012456" Foreground="White"
                            WordWrap="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
                            AutomationProperties.Name="PowerShell console" />
-          <Border Grid.Row="1" x:Name="ProgressPanel" IsVisible="False" Background="{DynamicResource ControlBrush}" Padding="8,4" VerticalAlignment="Bottom">
+          <Border Grid.Row="2" x:Name="ProgressPanel" IsVisible="False" Background="{DynamicResource ControlBrush}" Padding="8,4" VerticalAlignment="Bottom">
             <StackPanel Spacing="3">
               <TextBlock x:Name="ProgressText" />
               <ProgressBar x:Name="ScriptProgress" Minimum="0" Maximum="100" Height="8" />

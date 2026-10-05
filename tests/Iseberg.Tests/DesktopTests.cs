@@ -20,7 +20,8 @@ namespace Iseberg.Tests;
 public static class TestApplication
 {
     public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>()
-        .UseHeadless(new AvaloniaHeadlessPlatformOptions());
+        .UseSkia()
+        .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
 }
 
 [Collection(PowerShellPolicyCollection.Name)]

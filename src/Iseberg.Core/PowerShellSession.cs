@@ -27,6 +27,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     public event Action<ProgressUpdate>? ProgressChanged;
     public event Action<DebugLocation?>? DebuggerStopped;
     public event Action? ConsoleCleared;
+    public event Action<TerminalRequest>? TerminalRequested;
     public SessionState State { get; private set; } = SessionState.Starting;
     public string Prompt { get; private set; } = "PS> ";
     public string Version => PSVersionInfo.PSVersion.ToString();
@@ -36,7 +37,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         host = new WorkbenchHost(entry => Output?.Invoke(entry), ReadInput,
             update => ProgressChanged?.Invoke(update), () => ConsoleCleared?.Invoke(), ReadShowCommand,
             () => runspace, () => IsRunspacePushed, remote => PushRunspace(remote, false), PopRunspace,
-            EnterNestedPrompt, ExitNestedPrompt, ReadCommandError);
+            EnterNestedPrompt, ExitNestedPrompt, ReadCommandError, RunTerminal);
         var initialState = InitialSessionState.CreateDefault2();
         // The default Unix function clears a terminal instead of this graphical host.
         initialState.Commands.Remove("Clear-Host", typeof(SessionStateFunctionEntry));
@@ -338,6 +339,15 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         ObjectDisposedException.ThrowIf(disposed, this);
         if (State != SessionState.Ready)
             throw new InvalidOperationException("The PowerShell tab is not ready.");
+    }
+
+    private int? RunTerminal(TerminalRequest request)
+    {
+        var handler = TerminalRequested;
+        if (handler is null) return null;
+        request.CancellationToken.ThrowIfCancellationRequested();
+        handler(request);
+        return request.Response.Task.GetAwaiter().GetResult();
     }
 
     private string ReadInput(InputRequest request)
