@@ -295,7 +295,8 @@ public sealed partial class OptionsWindow : Window
         var defaults = new UserSettings
         {
             RecentFiles = draft.RecentFiles, CustomThemes = draft.CustomThemes,
-            LoadProfiles = draft.LoadProfiles, ShowCommands = draft.ShowCommands, WordWrap = draft.WordWrap, Zoom = draft.Zoom
+            LoadProfiles = draft.LoadProfiles, ShowCommands = draft.ShowCommands, WordWrap = draft.WordWrap, Zoom = draft.Zoom,
+            HelpView = draft.HelpView.Copy()
         };
         draft = defaults;
         colorValid = true;

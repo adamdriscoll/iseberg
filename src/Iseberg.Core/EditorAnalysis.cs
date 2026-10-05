@@ -7,6 +7,17 @@ public sealed record ScriptAnalysis(Token[] Tokens, ParseError[] Errors, IReadOn
 
 public static class EditorAnalysis
 {
+    public static string? CommandNameAtCaret(string text, int caret)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(caret);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(caret, text.Length);
+        var ast = Parser.ParseInput(text, out _, out _);
+        return ast.FindAll(node => node is CommandAst && node.Extent.StartOffset <= caret &&
+                node.Extent.EndOffset >= caret, searchNestedScriptBlocks: true)
+            .OfType<CommandAst>().OrderBy(command => command.Extent.EndOffset - command.Extent.StartOffset)
+            .FirstOrDefault()?.GetCommandName();
+    }
+
     public static (int Open, int Close)? MatchingBrace(string text, int caret)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(caret);

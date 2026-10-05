@@ -59,6 +59,7 @@
         <MenuItem Header="_Stop Operation" InputGesture="Ctrl+Pause" Tag="Stop" Click="OnAction" />
         <Separator />
         <MenuItem Header="Start _IntelliSense" InputGesture="Ctrl+Space" Tag="Complete" Click="OnAction" />
+        <MenuItem Header="Show Command..." InputGesture="Ctrl+F1" Tag="ShowCommand" Click="OnAction" />
         <MenuItem Header="_Snippets..." InputGesture="Ctrl+J" Tag="Snippets" Click="OnAction" />
         <MenuItem Header="Create Snippet..." Tag="CreateSnippet" Click="OnAction" />
         <MenuItem Header="Import Snippets..." Tag="ImportSnippets" Click="OnAction" />
@@ -161,7 +162,7 @@
       </Grid>
       <GridSplitter Grid.Column="1" x:Name="CommandSplitter" Width="5" HorizontalAlignment="Stretch" Background="{DynamicResource ControlBrush}" AutomationProperties.Name="Commands pane divider" />
       <Border Grid.Column="2" x:Name="CommandsPane" Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0">
-        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="7">
+        <Grid RowDefinitions="Auto,Auto,Auto,2*,5,3*,Auto" Margin="7">
           <Grid ColumnDefinitions="*,Auto">
             <TextBlock Text="{local:Ui CommandsTitle}" FontWeight="Bold" Margin="0,2,0,8" />
             <Button Grid.Column="1" Classes="close" Tag="Commands" Click="OnAction" AutomationProperties.Name="{local:Ui Commands}"><local:ToolbarIcon Kind="Close" Width="10" Height="10" /></Button>
@@ -178,13 +179,15 @@
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
-          <TextBox Grid.Row="4" x:Name="CommandSyntax" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Height="100" Margin="0,7" FontSize="11" Background="{DynamicResource WindowBrush}" Foreground="{DynamicResource WindowTextBrush}" AutomationProperties.Name="Command syntax" />
-          <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="5">
-            <Button Content="{local:Ui Refresh}" Tag="RefreshCommands" Click="OnAction" />
-            <Button Content="{local:Ui HelpButton}" Tag="CommandHelp" Click="OnAction" />
-            <Button Content="{local:Ui Insert}" Tag="InsertCommand" Click="OnAction" />
+          <GridSplitter Grid.Row="4" Height="5" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Ui CommandFormDivider}" />
+          <local:CommandFormView Grid.Row="5" x:Name="CommandForm" Margin="0,5" />
+          <WrapPanel Grid.Row="6" HorizontalAlignment="Right">
+            <Button x:Name="CommandRefreshButton" Content="{local:Ui Refresh}" Tag="RefreshCommands" Click="OnAction" />
+            <Button x:Name="CommandHelpButton" Content="{local:Ui HelpButton}" Tag="CommandHelp" Click="OnAction" />
+            <Button x:Name="CommandCopyButton" Content="{local:Ui CopyCommand}" Tag="CopyCommand" Click="OnAction" />
+            <Button x:Name="CommandInsertButton" Content="{local:Ui Insert}" Tag="InsertCommand" Click="OnAction" />
             <Button x:Name="CommandRunButton" Content="{local:Ui RunButton}" Tag="RunCommand" Click="OnAction" />
-          </StackPanel>
+          </WrapPanel>
         </Grid>
       </Border>
     </Grid>

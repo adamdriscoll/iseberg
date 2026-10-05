@@ -1,0 +1,55 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StyleInclude Source="avares://Iseberg/OptionsStyles.axaml" />
+  <Style Selector="Window.options Expander">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <StackPanel>
+          <ToggleButton x:Name="PART_ExpandButton" IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" MinHeight="25"
+                        Padding="2" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                        Background="{DynamicResource WindowBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <Border Width="18" Height="18" CornerRadius="9" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}">
+                <Path x:Name="arrow" Data="M0,0 L4,4 L8,0" Stroke="{DynamicResource ControlTextBrush}"
+                      StrokeThickness="1" Width="8" Height="4" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              </Border>
+              <ContentPresenter Content="{TemplateBinding Header}" VerticalAlignment="Center" />
+            </StackPanel>
+          </ToggleButton>
+          <ContentPresenter x:Name="PART_ContentPresenter" Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}" IsVisible="{TemplateBinding IsExpanded}" />
+        </StackPanel>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="Window.options Expander:expanded /template/ Path#arrow">
+    <Setter Property="Data" Value="M0,4 L4,0 L8,4" />
+  </Style>
+  <Style Selector="Window.options TabStripItem">
+    <Setter Property="Margin" Value="0" />
+  </Style>
+  <Style Selector="Window.options TextBox">
+    <Setter Property="Height" Value="25" />
+  </Style>
+  <Style Selector="Window.options Slider#HelpZoom">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Grid>
+          <Border Height="2" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center" />
+          <Track x:Name="PART_Track" Orientation="{TemplateBinding Orientation}" Minimum="{TemplateBinding Minimum}"
+                 Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value, Mode=TwoWay}">
+            <Track.Thumb>
+              <Thumb Width="10" Height="18" MinHeight="0" Background="{DynamicResource ControlBrush}">
+                <Thumb.Template>
+                  <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" />
+                  </ControlTemplate>
+                </Thumb.Template>
+              </Thumb>
+            </Track.Thumb>
+          </Track>
+        </Grid>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+</Styles>

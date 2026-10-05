@@ -11,6 +11,19 @@ public sealed record ProgressUpdate(string Activity, string Status, int Percent,
 public sealed record CompletionSet(int Start, int Length, IReadOnlyList<CompletionResult> Matches);
 public sealed record CommandDescription(string Name, string Module, string Kind, string Definition);
 
+public sealed class ShowCommandRequest
+{
+    public CommandFormDescription? Command { get; init; }
+    public IReadOnlyList<CommandDescription> Commands { get; init; } = [];
+    public string HelpText { get; init; } = "";
+    public CommandHelpDocument? HelpDocument { get; init; }
+    public Uri? HelpUri { get; init; }
+    public bool PassThru { get; init; }
+    public double Width { get; init; } = 360;
+    public double Height { get; init; } = 410;
+    public TaskCompletionSource<string?> Response { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+}
+
 public sealed class InputRequest(string caption, string message, bool secret = false)
 {
     public string Caption { get; } = caption;

@@ -6,16 +6,22 @@ using System.Security;
 
 namespace Iseberg.Core;
 
+internal sealed record WorkbenchHostServices(Func<ShowCommandRequest, string?> ShowCommand);
+
 internal sealed class WorkbenchHost : PSHost
 {
     private readonly Guid id = Guid.NewGuid();
     private readonly WorkbenchHostUi ui;
+    private readonly PSObject privateData;
 
     public WorkbenchHost(Action<OutputEntry> write, Func<InputRequest, string> read,
-        Action<ProgressUpdate> progress, Action clear)
+        Action<ProgressUpdate> progress, Action clear, Func<ShowCommandRequest, string?> showCommand)
     {
         ui = new(write, read, progress, clear);
+        privateData = PSObject.AsPSObject(new WorkbenchHostServices(showCommand));
     }
+
+    public override PSObject PrivateData => privateData;
 
     public override Guid InstanceId => id;
     public override string Name => "Iseberg";

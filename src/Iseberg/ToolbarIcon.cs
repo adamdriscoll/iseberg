@@ -74,6 +74,11 @@ public sealed class ToolbarIcon : Control
             case "Help": case "About":
                 context.DrawEllipse(DesktopTheme.HighContrast ? DesktopTheme.Brush("WindowBrush") : Brushes.LightBlue, stroke, new(9, 9), 8, 8);
                 Shape("M6,6 C6,2 13,2 13,6 C13,9 9,8 9,11 M9,13 L9,15", Brushes.Transparent); break;
+            case "Question":
+                context.DrawEllipse(DesktopTheme.HighContrast ? DesktopTheme.Brush("SelectionBrush") : Brushes.RoyalBlue,
+                    stroke, new(9, 9), 8, 8);
+                context.DrawGeometry(null, new Pen(DesktopTheme.HighContrast ? DesktopTheme.Brush("SelectionTextBrush") : Brushes.White, 1.5),
+                    Geometry.Parse("M6,6 C6,2 13,2 13,6 C13,9 9,8 9,11 M9,13 L9,15")); break;
             case "Options":
                 Shape("M7,1 L11,1 12,4 15,4 17,7 15,9 17,12 15,15 12,14 11,17 7,17 6,14 3,15 1,12 3,9 1,7 3,4 6,4 Z", Brushes.LightGray);
                 context.DrawEllipse(null, stroke, new(9, 9), 3, 3); break;
@@ -103,12 +108,13 @@ public sealed class ToolbarIcon : Control
                 Shape("M3,3 L15,3 15,15 3,15 Z M6,9 L12,9", Brushes.White); break;
             case "LineNumbers": case "WordWrap":
                 Shape("M1,3 L3,3 M1,8 L3,8 M1,13 L3,13 M6,3 L17,3 M6,8 L17,8 M6,13 L13,13", Brushes.Transparent); break;
-            case "Top": case "Right": case "Maximized": case "Commands": case "FocusScript": case "FocusConsole":
+            case "Top": case "Right": case "Maximized": case "Commands": case "ShowCommand": case "FocusScript": case "FocusConsole":
                 Shape("M1,2 L17,2 17,16 1,16 Z", Brushes.White);
                 Shape("M1,2 L17,2 17,5 1,5 Z", Brushes.SteelBlue);
                 if (Kind == "Top") Shape("M2,11 L16,11 16,15 2,15 Z", Brushes.MidnightBlue);
                 if (Kind == "Right") Shape("M2,6 L8,6 8,15 2,15 Z", Brushes.MidnightBlue);
                 if (Kind == "Commands") Shape("M11,6 L16,6 16,15 11,15 Z", Brushes.LightGray);
+                if (Kind == "ShowCommand") Shape("M3,7 L6,7 6,10 3,10 Z M8,7 L15,7 M3,12 L6,12 6,15 3,15 Z M8,12 L15,12", Brushes.Transparent);
                 if (Kind == "FocusScript") Shape("M3,7 L15,7 M3,10 L15,10 M3,13 L10,13", Brushes.Transparent);
                 if (Kind == "FocusConsole") Shape("M3,7 L6,10 3,13 M8,13 L13,13", Brushes.Transparent);
                 break;
