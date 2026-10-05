@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Iseberg.Core;
@@ -12,14 +13,25 @@ public sealed partial class CommandFormView : UserControl
     public CommandForm? Form { get; private set; }
     public CommandFormResult? Result { get; private set; }
     public event Action? CommandChanged;
+    public bool Compact { get; init; }
 
     public CommandFormView()
     {
         InitializeComponent();
+        ParameterSetTabs.ItemTemplate = new FuncDataTemplate<CommandParameterSetDescription>((set, _) =>
+            new TextBlock { Text = set?.Name == "__AllParameterSets" ? UiText.Get("DefaultParameterSet") : set?.Name });
+        ParameterSetTabs.SelectionChanged += (_, _) =>
+        {
+            if (ParameterSetTabs.SelectedItem is CommandParameterSetDescription set)
+                ParameterSetPicker.SelectedItem = set;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                ParameterSetTabs.ContainerFromIndex(ParameterSetTabs.SelectedIndex)?.BringIntoView());
+        };
         ParameterSetPicker.SelectionChanged += (_, _) =>
         {
             if (Form is null || ParameterSetPicker.SelectedItem is not CommandParameterSetDescription set) return;
             Form.SelectSet(set.Name);
+            ParameterSetTabs.SelectedItem = set;
             RenderParameters();
         };
         ShowMessage(UiText.Get("SelectCommand"));
@@ -33,6 +45,8 @@ public sealed partial class CommandFormView : UserControl
         SetPanel.IsVisible = false;
         ParameterSetPicker.ItemsSource = null;
         Parameters.Children.Clear();
+        CommonParameters.Children.Clear();
+        CommonParameterExpander.IsVisible = false;
         CommandPreview.Text = "";
         CommandValidation.Text = "";
         CommandChanged?.Invoke();
@@ -42,7 +56,18 @@ public sealed partial class CommandFormView : UserControl
     {
         Form = form;
         CommandTitle.Text = form.Description.Name;
+        CommandTitle.IsVisible = !Compact;
         SetPanel.IsVisible = true;
+        SetPanel.Children[0].IsVisible = ParameterSetPicker.IsVisible = !Compact;
+        ParameterSetTabs.IsVisible = Compact;
+        ParameterSetTabScroll.IsVisible = Compact;
+        ParameterFrame.BorderThickness = Compact ? new Thickness(1) : new Thickness(0);
+        ParameterFrame.BorderBrush = DesktopTheme.Brush("BorderBrush");
+        Parameters.Margin = Compact ? new Thickness(8,4) : new Thickness(0);
+        PreviewExpander.IsVisible = !Compact;
+        ((Grid)Content!).RowSpacing = Compact ? 0 : 4;
+        CommonParameterExpander.Margin = Compact ? new Thickness(0,5,0,0) : new Thickness(0);
+        ParameterSetTabs.ItemsSource = form.Description.ParameterSets;
         ParameterSetPicker.ItemsSource = form.Description.ParameterSets;
         ParameterSetPicker.SelectedItem = form.SelectedSet;
         RenderParameters();
@@ -59,28 +84,26 @@ public sealed partial class CommandFormView : UserControl
     {
         if (Form is null) return;
         Parameters.Children.Clear();
+        CommonParameters.Children.Clear();
         foreach (var parameter in Form.SelectedSet.Parameters.Where(p => !p.IsCommon))
             Parameters.Children.Add(CreateParameter(parameter));
         var common = Form.SelectedSet.Parameters.Where(p => p.IsCommon).ToArray();
         if (common.Length > 0)
         {
-            var panel = new StackPanel { Spacing = 4 };
-            foreach (var parameter in common) panel.Children.Add(CreateParameter(parameter));
-            Parameters.Children.Add(new Expander
-            {
-                Header = UiText.Get("CommonParameters"), Content = panel, HorizontalAlignment = HorizontalAlignment.Stretch,
-                IsExpanded = common.Any(p => p.IsMandatory || Form.Value(p.Name).Included)
-            });
+            foreach (var parameter in common) CommonParameters.Children.Add(CreateParameter(parameter));
         }
+        CommonParameterExpander.IsVisible = common.Length > 0;
+        CommonParameterExpander.IsExpanded = common.Any(p => p.IsMandatory || Form.Value(p.Name).Included);
         if (Form.SelectedSet.Parameters.Count == 0)
             Parameters.Children.Add(new TextBlock { Text = UiText.Get("NoCommandParameters"), TextWrapping = TextWrapping.Wrap });
         UpdateCommand();
     }
 
-    private Expander CreateParameter(CommandParameterDescription parameter)
+    private Control CreateParameter(CommandParameterDescription parameter)
     {
         var value = Form!.Value(parameter.Name);
         var panel = new StackPanel { Spacing = 4, Margin = new Thickness(4) };
+        var inputPanel = new StackPanel { Spacing = 4 };
         var include = new CheckBox { Content = UiText.Get("IncludeParameter"), IsChecked = value.Included };
         AutomationProperties.SetName(include, parameter.Name + " - " + UiText.Get("IncludeParameter"));
         panel.Children.Add(include);
@@ -95,14 +118,14 @@ public sealed partial class CommandFormView : UserControl
                 include.IsChecked = true;
                 UpdateCommand();
             };
-            panel.Children.Add(boolean);
+            inputPanel.Children.Add(boolean);
         }
         else
         {
             var input = new TextBox
             {
                 Text = value.Text, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
-                MinHeight = parameter.IsArray ? 70 : 30, MaxHeight = 180
+                MinHeight = Compact ? 25 : parameter.IsArray ? 70 : 30, MaxHeight = 180
             };
             AutomationProperties.SetName(input, parameter.Name);
             var expression = new CheckBox { Content = UiText.Get("PowerShellExpression"), IsChecked = value.IsExpression };
@@ -140,17 +163,17 @@ public sealed partial class CommandFormView : UserControl
                     choice = picker;
                 }
                 AutomationProperties.SetName(choice, parameter.Name);
-                panel.Children.Add(choice);
+                inputPanel.Children.Add(choice);
                 input.IsVisible = value.IsExpression;
                 choice.IsVisible = !value.IsExpression;
             }
-            panel.Children.Add(input);
+            inputPanel.Children.Add(input);
             panel.Children.Add(expression);
             input.TextChanged += (_, _) =>
             {
                 if (value.Text == (input.Text ?? "")) return;
                 value.Text = input.Text ?? "";
-                include.IsChecked = true;
+                include.IsChecked = !Compact || value.Text.Length > 0;
                 UpdateCommand();
             };
             expression.IsCheckedChanged += (_, _) =>
@@ -187,6 +210,53 @@ public sealed partial class CommandFormView : UserControl
         if (parameter.Choices.Count > 0) details += "\n" + string.Join(", ", parameter.Choices);
         if (parameter.HelpMessage.Length > 0) details += "\n" + parameter.HelpMessage;
         panel.Children.Add(new TextBlock { Text = details, FontSize = 11, TextWrapping = TextWrapping.Wrap });
+        if (Compact)
+        {
+            var row = new Grid { ColumnDefinitions = new("42*,58*"), RowDefinitions = new("Auto,Auto"), ColumnSpacing = 6 };
+            Control label;
+            if (parameter.Kind == CommandParameterKind.Switch && !parameter.IsArray)
+            {
+                panel.Children.Insert(1, inputPanel);
+                var check = new CheckBox { Content = parameter.Name, IsChecked = value.Included && value.Boolean,
+                    Margin = new Thickness(0,3) };
+                AutomationProperties.SetName(check, parameter.Name);
+                check.IsCheckedChanged += (_, _) =>
+                {
+                    value.Included = check.IsChecked == true;
+                    value.Boolean = true;
+                    include.IsChecked = value.Included;
+                    UpdateCommand();
+                };
+                label = check;
+                Grid.SetColumnSpan(check, 2);
+            }
+            else
+            {
+                label = new TextBlock { Text = parameter.Name + ":" + (parameter.IsMandatory ? " *" : ""),
+                    VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+                Grid.SetColumn(inputPanel, 1); row.Children.Add(inputPanel);
+            }
+            row.Children.Add(label);
+            var advanced = new Expander
+            {
+                Header = UiText.Get("ParameterOptions"), Content = panel, IsVisible = false,
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            var options = new MenuItem { Header = UiText.Get("ParameterOptions") };
+            options.Click += (_, _) =>
+            {
+                advanced.IsVisible = true;
+                advanced.IsExpanded = !advanced.IsExpanded;
+                foreach (var input in inputPanel.Children.OfType<TextBox>())
+                    input.Height = advanced.IsExpanded ? parameter.IsArray ? 70 : 50 : 25;
+            };
+            row.ContextMenu = new ContextMenu { Items = { options } };
+            ToolTip.SetTip(row, details + "\n" + UiText.Get("ParameterOptionsHint"));
+            Grid.SetRow(advanced, 1); Grid.SetColumnSpan(advanced, 2); row.Children.Add(advanced);
+            AutomationProperties.SetName(row, parameter.Name);
+            return row;
+        }
+        panel.Children.Insert(1, inputPanel);
         var expander = new Expander
         {
             Header = parameter.Name + (parameter.IsMandatory ? " *" : ""), Content = panel,
@@ -206,6 +276,8 @@ public sealed partial class CommandFormView : UserControl
             Result.InvalidExpressions.Count == 0 ? "" : string.Format(UiText.Get("InvalidParameterExpressions"), string.Join(", ", Result.InvalidExpressions)),
             Result.InvalidChoices.Count == 0 ? "" : string.Format(UiText.Get("InvalidParameterChoices"), string.Join(", ", Result.InvalidChoices))
         }.Where(text => text.Length > 0));
+        CommandValidation.IsVisible = !Compact && !string.IsNullOrEmpty(CommandValidation.Text);
+        ToolTip.SetTip(this, CommandValidation.Text);
         CommandChanged?.Invoke();
     }
 }

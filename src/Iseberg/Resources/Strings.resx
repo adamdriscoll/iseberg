@@ -175,6 +175,35 @@
   <data name="CommandFormDivider" xml:space="preserve"><value>Command list and parameter form divider</value></data>
   <data name="ParameterSet" xml:space="preserve"><value>Parameter set:</value></data>
   <data name="CommandName" xml:space="preserve"><value>Command name:</value></data>
+  <data name="CommandParametersTitle" xml:space="preserve"><value>Parameters for "{0}":</value></data>
+  <data name="DefaultParameterSet" xml:space="preserve"><value>Default</value></data>
+  <data name="ParameterOptions" xml:space="preserve"><value>Parameter options...</value></data>
+  <data name="ParameterOptionsHint" xml:space="preserve"><value>Right-click for inclusion and expression options.</value></data>
+  <data name="CommandHelpTitle" xml:space="preserve"><value>{0} Help</value></data>
+  <data name="HelpSettings" xml:space="preserve"><value>Settings</value></data>
+  <data name="HelpSections" xml:space="preserve"><value>Help Sections</value></data>
+  <data name="HelpSearchOptions" xml:space="preserve"><value>Search Options</value></data>
+  <data name="HelpMatchCase" xml:space="preserve"><value>Match Case</value></data>
+  <data name="HelpWholeWord" xml:space="preserve"><value>Whole Word</value></data>
+  <data name="HelpSynopsis" xml:space="preserve"><value>Synopsis</value></data>
+  <data name="HelpSyntax" xml:space="preserve"><value>Syntax</value></data>
+  <data name="HelpDescription" xml:space="preserve"><value>Description</value></data>
+  <data name="HelpParameters" xml:space="preserve"><value>Parameters</value></data>
+  <data name="HelpInputs" xml:space="preserve"><value>Inputs</value></data>
+  <data name="HelpOutputs" xml:space="preserve"><value>Outputs</value></data>
+  <data name="HelpNotes" xml:space="preserve"><value>Notes</value></data>
+  <data name="HelpExamples" xml:space="preserve"><value>Examples</value></data>
+  <data name="HelpRelatedLinks" xml:space="preserve"><value>RelatedLinks</value></data>
+  <data name="HelpRemarks" xml:space="preserve"><value>Remarks</value></data>
+  <data name="HelpFind" xml:space="preserve"><value>Find</value></data>
+  <data name="HelpPrevious" xml:space="preserve"><value>Previous</value></data>
+  <data name="HelpNext" xml:space="preserve"><value>Next</value></data>
+  <data name="HelpContent" xml:space="preserve"><value>Command help</value></data>
+  <data name="HelpZoom" xml:space="preserve"><value>Help zoom percentage</value></data>
+  <data name="HelpMatchCount" xml:space="preserve"><value>Match {0} of {1}</value></data>
+  <data name="HelpSearchTimedOut" xml:space="preserve"><value>Help search timed out.</value></data>
+  <data name="HelpSettingsSaveFailed" xml:space="preserve"><value>Could not save help settings</value></data>
+  <data name="HelpDocumentUnavailable" xml:space="preserve"><value>The command help document is unavailable.</value></data>
   <data name="CommandSearch" xml:space="preserve"><value>Command search</value></data>
   <data name="AllModules" xml:space="preserve"><value>All modules</value></data>
   <data name="CommandPreview" xml:space="preserve"><value>Command preview</value></data>

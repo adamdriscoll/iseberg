@@ -19,6 +19,7 @@ public sealed class UserSettings
     public bool ScriptCompletionOnEnter { get; set; } = true;
     public int IntelliSenseTimeoutSeconds { get; set; } = 3;
     public bool UseLocalHelp { get; set; } = true;
+    public HelpViewSettings HelpView { get; set; } = new();
     public bool ShowToolbar { get; set; } = true;
     public bool UseDefaultSnippets { get; set; } = true;
     public int AutoSaveMinutes { get; set; } = 2;
@@ -54,6 +55,8 @@ public sealed class UserSettings
         IntelliSenseTimeoutSeconds = Math.Clamp(IntelliSenseTimeoutSeconds, 1, 30);
         Theme ??= new();
         Theme.Normalize();
+        HelpView ??= new();
+        HelpView.Normalize();
         CustomThemes ??= [];
         if (CustomThemes.Any(theme => theme is null)) throw new InvalidDataException("A saved theme is empty.");
         foreach (var theme in CustomThemes) theme.Normalize();

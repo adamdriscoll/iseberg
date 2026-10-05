@@ -1184,7 +1184,12 @@ public sealed partial class MainWindow : Window
                 async owner =>
                 {
                     if (settings.UseLocalHelp)
-                        await Dialogs.ShowTextAsync(owner, "PowerShell help - " + request.Command.Name, request.HelpText);
+                    {
+                        var document = request.HelpDocument ?? throw new InvalidOperationException(UiText.Get("HelpDocumentUnavailable"));
+                        var helpWindow = new CommandHelpWindow(document, settings.HelpView, SaveHelpViewAsync);
+                        CloseWhenRequestCompletes(helpWindow, request);
+                        await helpWindow.ShowDialog(owner);
+                    }
                     else
                     {
                         var uri = request.HelpUri ?? throw new InvalidOperationException(
@@ -1230,8 +1235,17 @@ public sealed partial class MainWindow : Window
             if (!await Launcher.LaunchUriAsync(uri)) throw new InvalidOperationException("The system could not open the online help URL.");
             return;
         }
-        var text = await displayedSession.Engine.GetHelpAsync(command);
-        await Dialogs.ShowTextAsync(owner ?? this, "PowerShell help - " + command, text);
+        var document = await displayedSession.Engine.GetHelpDocumentAsync(command);
+        await new CommandHelpWindow(document, settings.HelpView, SaveHelpViewAsync).ShowDialog(owner ?? this);
+    }
+
+    private async Task SaveHelpViewAsync(HelpViewSettings preferences)
+    {
+        var snapshot = settings.Copy();
+        snapshot.HelpView = preferences.Copy();
+        snapshot.Normalize();
+        await snapshot.SaveAsync();
+        settings = snapshot;
     }
 
     private async Task ReplaceAsync()

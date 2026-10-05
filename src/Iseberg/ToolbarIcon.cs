@@ -74,6 +74,11 @@ public sealed class ToolbarIcon : Control
             case "Help": case "About":
                 context.DrawEllipse(DesktopTheme.HighContrast ? DesktopTheme.Brush("WindowBrush") : Brushes.LightBlue, stroke, new(9, 9), 8, 8);
                 Shape("M6,6 C6,2 13,2 13,6 C13,9 9,8 9,11 M9,13 L9,15", Brushes.Transparent); break;
+            case "Question":
+                context.DrawEllipse(DesktopTheme.HighContrast ? DesktopTheme.Brush("SelectionBrush") : Brushes.RoyalBlue,
+                    stroke, new(9, 9), 8, 8);
+                context.DrawGeometry(null, new Pen(DesktopTheme.HighContrast ? DesktopTheme.Brush("SelectionTextBrush") : Brushes.White, 1.5),
+                    Geometry.Parse("M6,6 C6,2 13,2 13,6 C13,9 9,8 9,11 M9,13 L9,15")); break;
             case "Options":
                 Shape("M7,1 L11,1 12,4 15,4 17,7 15,9 17,12 15,15 12,14 11,17 7,17 6,14 3,15 1,12 3,9 1,7 3,4 6,4 Z", Brushes.LightGray);
                 context.DrawEllipse(null, stroke, new(9, 9), 3, 3); break;

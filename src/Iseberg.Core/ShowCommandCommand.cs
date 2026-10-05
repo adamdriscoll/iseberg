@@ -18,11 +18,11 @@ public sealed class ShowCommandCommand : PSCmdlet
 
     [Parameter]
     [ValidateRange(300, int.MaxValue)]
-    public int Width { get; set; } = 620;
+    public int Width { get; set; } = 360;
 
     [Parameter]
     [ValidateRange(300, int.MaxValue)]
-    public int Height { get; set; } = 700;
+    public int Height { get; set; } = 410;
 
     protected override void EndProcessing()
     {
@@ -52,10 +52,12 @@ public sealed class ShowCommandCommand : PSCmdlet
             ScriptBlock.Create("Get-Help -Name $args[0] -Full"), null, name);
         var helpText = InvokeCommand.InvokeScript(false,
             ScriptBlock.Create("$args[0] | Out-String -Width 100"), null, new object[] { help });
+        var helpDocument = CommandHelpDocument.FromHelp(description.Name, help);
         var script = host.ShowCommand(new()
         {
             Command = description, PassThru = PassThru, Width = Width, Height = Height,
             HelpText = string.Join(Environment.NewLine, helpText.Select(entry => entry.ToString())),
+            HelpDocument = helpDocument,
             HelpUri = PowerShellSession.FindHelpUri(help)
         });
         if (script is null) return;

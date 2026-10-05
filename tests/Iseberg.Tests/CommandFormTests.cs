@@ -375,7 +375,7 @@ public sealed class CommandFormTests
             var set = view.Form.Description.ParameterSets.First(s => s.Parameters.Any(p => p.Name == "Id"));
             view.FindControl<ComboBox>("ParameterSetPicker")!.SelectedItem = set;
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-            Input(Parameter(view, "Id"), "Id").Text = Environment.ProcessId.ToString();
+            Input(view, "Id").Text = Environment.ProcessId.ToString();
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
             Assert.True(view.Result!.IsValid);
             dialog.FindControl<Button>("ShowCommandRun")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -409,7 +409,7 @@ public sealed class CommandFormTests
             await WaitFor(() => window.OwnedWindows.OfType<ShowCommandWindow>().Any());
             var dialog = window.OwnedWindows.OfType<ShowCommandWindow>().Single();
             var view = dialog.FindControl<CommandFormView>("ShowCommandForm")!;
-            Input(Parameter(view, "Name"), "Name").Text = "Not executed";
+            Input(view, "Name").Text = "Not executed";
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
             var expected = view.GetCommand();
             Assert.Equal(UiText.Get("OK"), dialog.FindControl<Button>("ShowCommandRun")!.Content);
@@ -491,7 +491,7 @@ public sealed class CommandFormTests
             var dialog = window.OwnedWindows.OfType<ShowCommandWindow>().Single();
             var view = dialog.FindControl<CommandFormView>("ShowCommandForm")!;
             Assert.Equal("Test-IsebergForm", view.Form!.Description.Name);
-            Input(Parameter(view, "Name"), "Name").Text = "From dialog";
+            Input(view, "Name").Text = "From dialog";
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
             var output = new ConcurrentQueue<OutputEntry>();
             session.Engine.Output += output.Enqueue;
@@ -560,10 +560,10 @@ public sealed class CommandFormTests
         var result = window.ShowDialog<ShowCommandResult?>(owner);
         Assert.False(window.FindControl<Button>("ShowCommandRun")!.IsEnabled);
         var view = window.FindControl<CommandFormView>("ShowCommandForm")!;
-        Input(Parameter(view, "Name"), "Name").Text = "Dialog name";
+        Input(view, "Name").Text = "Dialog name";
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         Assert.True(window.FindControl<Button>("ShowCommandRun")!.IsEnabled);
-        window.FindControl<Button>("ShowCommandInsert")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.FindControl<MenuItem>("ShowCommandInsert")!.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         var command = Assert.IsType<ShowCommandResult>(await result);
         Assert.False(command.Run);
         Assert.Equal(form.Build().Script, command.Script);
@@ -580,7 +580,7 @@ public sealed class CommandFormTests
     private static Expander Parameter(CommandFormView view, string name) =>
         view.GetLogicalDescendants().OfType<Expander>().Single(e => (e.Header as string)?.TrimEnd(' ', '*') == name);
 
-    private static TextBox Input(Expander parameter, string name) =>
+    private static TextBox Input(Control parameter, string name) =>
         parameter.GetLogicalDescendants().OfType<TextBox>().Single(c => AutomationProperties.GetName(c) == name);
 
     private static async Task WaitFor(Func<bool> condition)

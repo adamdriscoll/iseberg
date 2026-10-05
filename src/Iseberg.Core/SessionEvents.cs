@@ -16,10 +16,11 @@ public sealed class ShowCommandRequest
     public CommandFormDescription? Command { get; init; }
     public IReadOnlyList<CommandDescription> Commands { get; init; } = [];
     public string HelpText { get; init; } = "";
+    public CommandHelpDocument? HelpDocument { get; init; }
     public Uri? HelpUri { get; init; }
     public bool PassThru { get; init; }
-    public double Width { get; init; } = 620;
-    public double Height { get; init; } = 700;
+    public double Width { get; init; } = 360;
+    public double Height { get; init; } = 410;
     public TaskCompletionSource<string?> Response { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 }
 

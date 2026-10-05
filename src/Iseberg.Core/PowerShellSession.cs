@@ -59,8 +59,8 @@ public sealed class PowerShellSession : IAsyncDisposable
                 [Parameter(Position=0)] [ValidateNotNullOrEmpty()] [string] $Name,
                 [switch] $PassThru,
                 [switch] $NoCommonParameter,
-                [ValidateRange(300, [int]::MaxValue)] [int] $Width = 620,
-                [ValidateRange(300, [int]::MaxValue)] [int] $Height = 700
+                [ValidateRange(300, [int]::MaxValue)] [int] $Width = 360,
+                [ValidateRange(300, [int]::MaxValue)] [int] $Height = 410
             )
             Show-IsebergCommand @PSBoundParameters
             """));
@@ -221,6 +221,13 @@ public sealed class PowerShellSession : IAsyncDisposable
             .AddCommand("Out-String").AddParameter("Width", 100).Invoke<string>();
         ThrowQueryErrors(shell);
         return string.Join(Environment.NewLine, output);
+    });
+
+    public Task<CommandHelpDocument> GetHelpDocumentAsync(string name) => QueryAsync(shell =>
+    {
+        var help = shell.AddCommand("Get-Help").AddParameter("Name", name).AddParameter("Full").Invoke();
+        ThrowQueryErrors(shell);
+        return CommandHelpDocument.FromHelp(name, help);
     });
 
     public Task<CommandFormDescription> GetCommandFormAsync(string name, string? module = null,
