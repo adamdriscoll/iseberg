@@ -4,8 +4,6 @@ A cross-platform desktop workbench inspired by PowerShell ISE, built with Avalon
 
 ![Iseberg showing a syntax-highlighted PowerShell script, console output, and the Commands pane.](docs/images/iseberg.png)
 
-**This is an initial working implementation, not a complete or pixel-perfect replacement for Microsoft PowerShell ISE.** See [the parity inventory](docs/parity.md) for implemented behavior and remaining gaps.
-
 ## Run
 
 Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), then:

@@ -537,7 +537,7 @@ public sealed partial class MainWindow : Window
             case "Options": await OptionsAsync(); break;
             case "About":
                 await Dialogs.ShowTextAsync(this, "About Iseberg",
-                    $"Iseberg\nA cross-platform PowerShell ISE-style editor and terminal.\n\nPowerShell {session?.Engine.Version}\nAvalonia + AvaloniaEdit + PowerShell SDK\n\nSee README.md and docs/parity.md for implemented behavior and known differences.");
+                    $"Iseberg\nA cross-platform PowerShell ISE-style editor and terminal.\n\nPowerShell {session?.Engine.Version}\nAvalonia + AvaloniaEdit + PowerShell SDK\n\nSee README.md for implemented behavior and GitHub issues for remaining work.");
                 break;
         }
         if (action is "Copy" or "Cut" or "Paste" or "Undo" or "Redo" or "SelectAll") FocusInput(editTarget);
