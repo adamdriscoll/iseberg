@@ -4,23 +4,21 @@ A cross-platform desktop workbench inspired by PowerShell ISE, built with Avalon
 
 ![Iseberg showing a syntax-highlighted PowerShell script, console output, and the Commands pane.](docs/images/iseberg.png)
 
-## Run
+[Get started](#getting-started) | [Keyboard shortcuts](#keyboard-shortcuts) | [User guide](docs/user-guide.md) | [Development guide](docs/development.md)
 
-Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), then:
+## What you can do
 
-```powershell
-dotnet run --project src/Iseberg
-```
+- **Edit scripts** with syntax highlighting, folding, IntelliSense, find/replace, and built-in or custom snippets.
+- **Run PowerShell** in independent tabs with persistent variables, functions, modules, and working directories.
+- **Explore commands** through the Commands pane, command forms, and help.
+- **Debug scripts** with breakpoints, stepping, variable inspection, watches, and a call stack.
+- **Work remotely** through SSH or WSMan, including remote files and debugging.
+- **Extend the workbench** with a supported `$psISE` scripting subset, per-tab Add-ons menus, and ISE snippet-management commands.
+- **Make it your own** with themes, fonts, pane layouts, recovery copies, and keyboard navigation.
 
-Open scripts from the command line:
+## Getting started
 
-```powershell
-dotnet run --project src/Iseberg -- ./example.ps1
-```
-
-PowerShell is included through the SDK dependency; a separate `pwsh` installation is not required. Windows, Linux, and macOS are target platforms. Engine/headless desktop tests and publishing have been verified locally on Windows and Linux, and CI runs the same checks on all three platforms. Native desktop interaction has been exercised on Windows; native Linux/macOS desktop interaction has not yet been verified.
-
-### Install and update
+### Install a package
 
 Download unsigned, self-contained packages from [GitHub Releases](https://github.com/adamdriscoll/iseberg/releases), or from the **Artifacts** section of a successful **Build and test** Actions run.
 
@@ -30,217 +28,76 @@ Download unsigned, self-contained packages from [GitHub Releases](https://github
 | macOS Intel / Apple silicon | DMG, ZIP | Open the DMG and drag `Iseberg.app` to Applications, or extract the ZIP and move the app there. |
 | Linux x64 / ARM64 | ZIP | Extract with an archive tool that preserves executable permissions, then run `./Iseberg` in a graphical desktop. |
 
-The MSI installs to Program Files with a Start menu shortcut. Its feature-selection page offers `.ps1`, `.psm1`, and `.psd1` registrations independently, off by default. Selecting one adds Iseberg to **Open with** and **Default apps**; choose Iseberg there to make it the default editor. Existing defaults and Windows' protected user choices are not overwritten. MSI upgrades retain selected features; uninstall removes installed files, shortcuts, and registrations but leaves user settings/recovery data.
+**Packages are not signed or notarized yet.** Windows/macOS may warn or block launch according to local security policy. See [installation and updates](docs/user-guide.md#installation-and-updates) for file associations, manual updates, and verification limits.
 
-The macOS app declares all three file types for Finder's **Open With**. Use **Get Info > Open with > Change All** to set a default if desired. Associated-file launches open documents for editing, never execute them. Windows/Linux ZIPs do not register file associations. Packages are not signed or notarized yet: Windows/macOS may warn or block launch according to local security policy. Native install/uninstall and desktop interaction across all platforms remain outside this implementation's verification scope.
+### Run from source
 
-After startup, Iseberg checks the public GitHub project for a newer **stable** release in the background, with a ten-second timeout. A prompt opens the matching MSI, DMG, or ZIP download in your browser for **manual installation**, or the release page if that architecture's package is not available. Save your work and close Iseberg before installing; portable users can download the ZIP from the release page and replace their extracted app. Nothing is downloaded or installed without your action. Prereleases are not offered automatically.
+Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), then run from the repository root:
 
-Disable automatic checks in **Tools > Options > General Settings > Check for updates at startup**, or choose **Disable checks** in the update prompt. **Help > Check for Updates** remains available for manual checks. No releases is a normal result; network/API failures are logged and shown non-modally in the status bar for automatic checks (manual checks show a message), without blocking startup or editing.
+```powershell
+dotnet run --project src/Iseberg
+```
 
-On Linux, use a graphical desktop with Avalonia's native dependencies (including X11, fontconfig, and OpenGL or software rendering). Native title bars, file pickers, available fonts, and platform-specific cmdlets necessarily differ by operating system.
+To open a script at launch:
 
-## Use
+```powershell
+dotnet run --project src/Iseberg -- ./example.ps1
+```
 
-The default view has a white script editor above the blue console, a Commands pane on the right, and the familiar menu, toolbar, file tabs, and status/zoom bar. The PowerShell session tab row appears when more than one session is open or a remote connection is active, so a single local session's script tabs sit directly beneath the toolbar.
+PowerShell is included through the SDK dependency; a separate `pwsh` installation is not required when running from source or using the full distribution.
+
+Windows, Linux, and macOS are target platforms. Linux needs a graphical desktop and Avalonia's native dependencies. Native Linux/macOS desktop interaction has not yet been verified; see [platform support](docs/development.md#platform-support) for requirements and verification status.
+
+The [compact distribution](docs/development.md#compact-single-file-distribution) is a smaller, single-executable alternative that requires a compatible PowerShell installation.
+
+### Your first script
+
+1. Open a script with **Ctrl+O**, or create one with **Ctrl+N**.
+2. Press **F5** to run the script, or **F8** to run a selection or the current line.
+3. Use the console below the editor for commands and output. Each PowerShell tab keeps its own session.
+4. Set a breakpoint with **F9**, then use **F10** / **F11** to step when execution pauses.
+
+**Scripts run with your account's permissions; Iseberg is not a sandbox.** Windows execution policy is respected, and profiles are opt-in. See [execution and profiles](docs/user-guide.md#execution-and-profiles) for blocked scripts and save-before-run behavior.
+
+## Keyboard shortcuts
 
 | Action | Shortcut |
 |---|---|
 | New / open / save script | Ctrl+N / Ctrl+O / Ctrl+S |
-| Save as / close script | Ctrl+Shift+S / Ctrl+W |
-| Print script snapshot | Ctrl+P |
 | New / close PowerShell tab | Ctrl+T / Ctrl+Shift+W |
 | Run script / continue debugging | F5 |
 | Run selection, or current line | F8 |
 | Stop execution | Ctrl+Break or Shift+F5 |
 | Toggle breakpoint | F9 |
-| Remove all breakpoints | Ctrl+Shift+F9 |
-| Break running script | Ctrl+Alt+Break |
 | Step over / into / out | F10 / F11 / Shift+F11 |
 | Completion / snippets | Ctrl+Space / Ctrl+J |
 | Find / replace / go to line | Ctrl+F / Ctrl+H / Ctrl+G |
-| Matching brace / select to matching brace | Ctrl+] / Ctrl+Shift+] |
-| Script top / right / maximized | Ctrl+1 / Ctrl+2 / Ctrl+3 |
 | Focus script / console | Ctrl+I / Ctrl+D |
-| Clear console | Ctrl+L |
 
-On macOS, Command is also accepted for the workbench shortcuts. Console Up/Down retrieves command history; Shift+Enter inserts a newline. Enter leaves syntactically incomplete commands open for more input. Each PowerShell tab has an independent persistent runspace, so variables, functions, current directory, and loaded modules survive successive commands without leaking into another tab.
+On macOS, Command is also accepted for workbench shortcuts. See the [full shortcut reference](docs/user-guide.md#workbench-and-keyboard-shortcuts) for layout, printing, and additional debugger actions.
 
-The console is one text buffer and one scrollable editor: output, earlier commands, the prompt, and current input can be selected and copied together. Only the current input is editable; transcript text and prompt characters are protected from typing, deletion, paste, and automation writes. Enter on an earlier command recalls its code into the current input without executing it. Escape dismisses completion first, or clears input when no completion is open. Output/prompt updates reset console undo so undo cannot modify the transcript; script undo histories remain independent.
+## Documentation
 
-IntelliSense uses PowerShell completion in the active runspace. Automatic triggers include variables (`$`), command/parameter names (`-`), members (`.` / `::`), types (`[`), provider paths (`\` / `/`), and values after a parameter name and space. A new trigger refreshes an open list for the current context, such as switching from commands to parameters in `Get-Process -`. Parser context suppresses comments, literal strings, numeric decimal points, and arithmetic operators; expandable-string variables and subexpressions are supported. Ctrl+Space requests completion explicitly, even with automatic IntelliSense disabled. Console Tab / Shift+Tab cycles results when the completion list is closed. The timeout preference limits a completion query, rather than delaying its appearance.
+| Looking for... | Start here |
+|---|---|
+| Packages, file associations, and update checks | [Installation and updates](docs/user-guide.md#installation-and-updates) |
+| Console behavior, IntelliSense, and snippets | [User guide](docs/user-guide.md) |
+| `$psISE`, Add-ons menus, and snippet-management commands | [ISE scripting compatibility](docs/ise-compatibility.md) |
+| Profiles, execution policy, prompts, and native applications | [Execution and profiles](docs/user-guide.md#execution-and-profiles) / [Host and terminals](docs/user-guide.md#host-prompts-colors-and-native-terminals) |
+| Remote connections and remote files | [Remoting](docs/user-guide.md#remoting) |
+| Breakpoints, watches, and stepping | [Debugging](docs/user-guide.md#debugging) |
+| File encodings, session restoration, recovery, and printing | [Files and sessions](docs/user-guide.md#files-sessions-and-printing) / [Autosave](docs/user-guide.md#autosave) |
+| Themes, preferences, and accessibility | [Options and accessibility](docs/user-guide.md#options-and-accessibility) |
+| Building, testing, publishing, and VS Code setup | [Development guide](docs/development.md) |
+| Module responsibilities and design decisions | [Architecture overview](docs/architecture.md) |
 
-**Replace** provides literal or .NET regular-expression matching, case and whole-word options, upward search, wrap-around, and a selection-only scope. Regex replacements support capture groups such as `$1` and `${name}`; literal replacements do not interpret dollar signs. Find Next, Replace Next, and Replace All stay available in one dialog, with explicit match/error feedback. Replace All is one undoable edit. Matching-brace navigation uses parser tokens, ignores braces in comments/literal text, includes nested subexpressions, and expands script folds when needed.
+## Development
 
-### Snippets
-
-Ctrl+J opens a searchable catalog with descriptions, author information, and code previews. The catalog covers all 26 ISE built-in titles: conditionals, loops, functions/advanced functions, switch, error handling, comments, classes, workflows, and DSC structures. Insertion respects document indentation and line endings, positions the caret from snippet metadata, and is undoable.
-
-**Tools > Create Snippet** saves selected script text as a custom snippet. **Import Snippets** reads standard ISE `.snippets.ps1xml` files, including title, description, author, `CaretOffset`, and `Indent`; **Export Snippets** writes the custom catalog in that format. Imports are validated before persistence, duplicate custom entries are removed, and malformed files are reported instead of silently skipped. Custom files are discovered recursively in `Iseberg/Snippets` under local application data. On Windows, the catalog also reads the user's `Documents/WindowsPowerShell/Snippets` folder without modifying those files. Disabling **Use default snippets** hides only built-ins, not custom snippets.
-
-Workflow and classic DSC entries are explicitly labeled as Windows PowerShell 5.1 templates. They are available for authoring legacy scripts, but this PowerShell 7 host does not add support for executing legacy workflow/configuration syntax.
-
-### ISE scripting and Add-ons
-
-Local PowerShell tabs expose a supported `$psISE` subset for live script-file/editor operations, tab selection, and per-tab custom Add-ons menus. Script-block menu actions and shortcuts run in their owning PowerShell session, including closure bindings, and participate in normal execution/debugging/Stop behavior. `New-IseSnippet`, `Get-IseSnippet`, and `Import-IseSnippet` provide snippet-management compatibility; cmdlet imports are session-only and appear in that tab's Ctrl+J picker.
-
-See [ISE scripting compatibility](docs/ise-compatibility.md) for member signatures, profile/menu examples, snippet workflows, and explicit unsupported boundaries. This is not binary ISE compatibility: WPF tools are unsupported on **all platforms, including Windows**, and cannot run natively on Linux/macOS. The PowerShell 7/Avalonia architecture is unchanged.
-
-### Execution and profiles
-
-**Windows execution policy is respected.** If local `.ps1` files are blocked, use **Tools > Enable Local Scripts (Process Only)** and explicitly approve `RemoteSigned`. This changes only the application process, affects all its runspaces, and does not override Group Policy or change user/machine settings. Running named files uses their real paths, preserving `$PSScriptRoot`, `$PSCommandPath`, and debugger source locations. The save-before-run preference prompts for modified scripts; explicitly choosing **Run without saving** executes the edited text in memory without named-file metadata and is not allowed with breakpoints. With prompting disabled, modified named scripts are saved automatically; untitled scripts run in memory unless breakpoints require saving.
-
-Profiles are opt-in under **Tools > Load profiles in new PowerShell tabs**. `$PROFILE` points to `Iseberg_profile.ps1` in the usual user PowerShell configuration directory, alongside the shared `profile.ps1`. Loading profiles executes all four profile locations in normal PowerShell order. Startup never silently changes execution policy or executes user profiles.
-
-Scripts execute with your account's permissions. This is **not a sandbox**. The console is a graphical PowerShell host with a protected transcript, not a terminal emulator. Interactive native applications run in a separate system terminal as described below.
-
-`Clear-Host` and its `clear`/`cls` aliases clear the graphical console on every supported platform without invoking a native terminal program or resetting the PowerShell session.
-
-### Host prompts, colors, and native terminals
-
-`Read-Host`, secure input, credentials, and field prompts use graphical dialogs. Single-choice prompts use radio buttons; multiple-choice prompts use checkboxes with the supplied defaults and help text. Submit returns the selected indices, including an explicitly empty multiple selection. Cancel, Escape, or closing an input dialog stops the requesting pipeline. Stop also cancels outstanding input and closes its dialog; secure values are not written to the transcript.
-
-Local scripts can call `$Host.EnterNestedPrompt()`. The console changes to `[Nested 1]: PS> ` and accepts commands and completion in the suspended scope, including function-local variables. Further nested prompts increase the depth. Enter `exit` or call `$Host.ExitNestedPrompt()` to return one level; Stop cancels the whole execution rather than resuming the suspended script. The normal execution gate remains occupied, so another script cannot run concurrently. Nested host prompts inside debugger evaluation are rejected explicitly: the debugger already provides its own suspended-scope console. Remote nested prompts are unsupported; use remote breakpoints and the debugger console instead.
-
-`Write-Host -ForegroundColor/-BackgroundColor`, colored `$Host.UI.Write(...)`, and changes to `$Host.UI.RawUI.ForegroundColor/BackgroundColor` affect subsequent output without recoloring earlier transcript text. ANSI SGR sequences support normal/bright 16-color palettes, 256-color palettes, RGB foreground/background, bold, underline, reverse video, and their resets. Styling can span output writes; copied text contains no styling escapes. Theme colors provide defaults, and high contrast overrides custom output styling. `Clear-Host` resets ANSI parser state. An incomplete escape at the end of output is discarded with a warning.
-
-The transcript does **not** implement cursor movement, erasure, screen switching, OSC title/hyperlink commands, raw key events, or character-cell reads/writes/scrolling. Unsupported ANSI controls are discarded with one warning per cleared transcript, never applied to earlier commands or current input. Backspace and carriage-return output cannot overwrite earlier text. Raw cursor/window positioning, resizing, cursor-size changes, `ReadKey`, `FlushInputBuffer`, and character-buffer operations raise explicit unsupported-host errors. `KeyAvailable` is always false; buffer/window sizes are fixed formatting hints, not a real screen. `WindowTitle` is stored host metadata only. The whole-buffer clear sentinel remains supported for `Clear-Host`.
-
-For an interactive native application, explicitly opt into a separate terminal:
-
-```powershell
-Start-IsebergTerminal my-native-app -ArgumentList @('argument with spaces') -WorkingDirectory $PWD
-```
-
-The application must be an installed native executable discoverable by PowerShell, or an executable path. Windows opens a new native console; Linux requires **xterm and a graphical display**; macOS uses **Terminal.app**. Missing applications, launch failures, terminal closure without an exit status, and unsupported environments are reported as errors. Arguments are passed as literal values, not interpolated shell code. Iseberg waits for completion, returns the integer exit code, and sets `$LASTEXITCODE`. Stop terminates the launched application's process tree, not unrelated terminals.
-
-Terminal input/output stays in that terminal, not in the protected transcript or PowerShell's object pipeline. The native process inherits the environment and selected filesystem directory but cannot share in-memory runspace variables or functions. Launching another PowerShell this way requires an installed `pwsh`; the embedded SDK alone is not a `pwsh` executable. Ordinary noninteractive native commands can still stream text through the graphical console; direct native execution warns that interactive input is unavailable and must use the terminal command. Terminal launch is local-only. Windows terminal input/output and stopping have been exercised locally; native Linux/macOS terminal interaction still requires platform-specific verification.
-
-The hosted `Show-Command -ErrorPopup` option displays execution errors in a read-only graphical popup instead of the normal error stream. Successful results remain structured PowerShell objects evaluated in the originating scope. Closing the popup dismisses it; Stop cancels it and the active execution. `-PassThru` returns the generated command without executing it, so no execution-error popup is shown.
-
-### Remoting
-
-**File > New Remote PowerShell Tab** opens a dedicated tab using SSH or WSMan. SSH accepts a hostname, optional user/key, port, and PowerShell subsystem; configure the server's SSH subsystem first and use local OpenSSH configuration/key authentication. WSMan accepts an `http`/`https` endpoint URI (including its port and `/wsman` path) and optional credentials, using default authentication. WSMan requires platform support, normally Windows. The workbench does not provision servers, bypass host/certificate verification, or save credentials.
-
-You can also run `Enter-PSSession` in any local tab, including `Enter-PSSession -Session $session` with an existing session. The host pushes that runspace; subsequent console commands, completion, command forms, and debugging use the remote connection. Tab captions and console/debugger prompts identify the remote machine. Enter `Exit-PSSession` (or `exit`) as a standalone console command, or choose **File > Exit Remote Session**, to restore the original local variables, functions, directory, and breakpoint configuration. Nested interactive sessions are rejected explicitly. Connection loss is reported in the console and restores the local runspace. Borrowed `PSSession` runspaces remain owned by PowerShell; temporary `Enter-PSSession` connections and connections created by the remote-tab dialog are closed when exited or the tab closes.
-
-**File > Open Remote File** opens a filesystem path on the active remote machine. Remote documents have a machine label, independent undo/dirty state, and retain their Unicode encoding/BOM and line endings. Save and Save As write through that connection, using an atomic replacement on the server; Save As confirms before replacing another file. Saving an untitled script in a remote tab asks for a remote path. Remote paths never enter local recent-file history. Recovery copies remain local plaintext and reopen as detached, unsaved documents rather than reconnecting automatically.
-
-F5 executes saved remote scripts at their remote paths, preserving source locations and `$PSScriptRoot`. Local files stay local: use F8 to execute their text remotely, or open/save a remote copy for named-file execution and breakpoints. A document cannot be saved or run through a different connection, even to the same machine; reopen it after reconnecting.
-
-Remote breakpoint stops open remote source in the editor and show the same Variables, Watch, Call Stack, and Breakpoints panes, with console evaluation, completion, stepping, continue, and stop. Remote variable inspection/evaluation uses only the stopped frame; callers remain navigable but cannot be inspected. Expanded objects are remoting-serialized snapshots, subject to PowerShell's serialization depth, not live local objects. Remote breakpoint specifications are kept separate from local ones and are not persisted as the local tab's debugger configuration. Desktop Show Command uses remote metadata; the console's Avalonia `Show-Command` bridge is local-only.
-
-### Debugging
-
-F9 or a left-click in the dedicated gutter beside a script line toggles its breakpoint; the marker follows inserted/deleted text. The gutter stays separate from the text, even with line numbers hidden or the editor scrolled/wrapped. Enabled breakpoints use filled red circles, disabled breakpoints use hollow circles, and the stopped statement has an arrow. Subtle translucent line highlights preserve the editor's background and syntax colors in light/dark themes; high contrast relies on gutter symbols without tinting the text.
-
-**Debug > Debugger Panes** shows Variables, Watch, Call Stack, and Breakpoints in a full-height, resizable dock to the right of the editor/console, and opens automatically when execution pauses. The debugger and Commands docks can be shown or closed independently; their widths persist across visibility changes and application restarts. Expand variable/watch objects to inspect properties, dictionary entries, and indexed array/list elements. Children load on demand in pages of up to 100, with **Load more** for larger collections. Property-getter failures appear beside the affected member. Refreshing or resuming discards old object references.
-
-Add PowerShell expressions in Watch; results refresh on each pause, after console evaluation, or with **Refresh**. Evaluation failures appear beside the affected watch. Select a call-stack frame to inspect its local variables; double-click to navigate to its source. The pane labels the inspected frame and explicitly identifies evaluation as using the stopped frame. Commands, F8, watches, and completion always use the stopped scope, not the selected caller. PowerShell does not expose arbitrary caller-scope execution; callers whose variable scope cannot be verified, including some dotted/module boundaries, report an inspection error instead of showing another scope's variables.
-
-While paused, enter commands in the console at the `[DBG]: PS>` prompt, or use F8 to evaluate a selection/current line without resuming the script. Assignments modify the suspended scope. F5 continues; F10/F11/Shift+F11 step over/into/out. **Debug > Break All** (Ctrl+Alt+Break) requests a pause at the next PowerShell statement; it does not interrupt an in-progress native command or cmdlet. Stop still cancels execution and any active debugger evaluation.
-
-**Debug > New Breakpoint** creates line, command, or variable breakpoints. Line breakpoints need a saved script path; command/variable breakpoints can optionally be restricted to a script. Variable breakpoints support Read, Write, or ReadWrite. A condition is a PowerShell expression that pauses only when true. Alternatively, an action is arbitrary PowerShell code; include `break` to pause. The Breakpoints pane supports editing, enabling/disabling, and deletion without restarting execution. Edits requested while a script is running first wait for a pause at the next PowerShell statement, then apply the change and leave execution paused. The status bar explains the wait; an in-progress cmdlet/native command must return before the pause can occur. F9 retains the originally requested source line even if the pause navigates elsewhere. Disabled line markers are hollow. Ctrl+Shift+F9 removes every breakpoint in the active PowerShell tab, including command and variable breakpoints.
-
-Paused IntelliSense uses PowerShell's debugger command queue, so variables and members are completed against the suspended runspace. Console Tab/Shift+Tab and Ctrl+Space remain available. Ctrl+Space can also display suggestions in the paused script editor, but accepting a suggestion cannot modify that read-only script. Completion cancellation/timeouts do not resume the script.
-
-Watches, conditions, actions, property getters, and console commands execute real PowerShell with your permissions and can have side effects. Watches and breakpoint specifications (including conditions/actions, enabled state, and variable access modes) persist independently by PowerShell tab name in the user's `Iseberg/settings.json`. Restored tabs and newly created numbered tabs load their matching configurations. This never restores running or suspended execution. Unsaved-script breakpoint markers, engine IDs/hit counts, selected frames, and inspected object values are not persisted. Saved watch expressions and breakpoint code are plaintext; avoid embedding secrets in them.
-
-### Files, sessions, and printing
-
-Startup automatically restores PowerShell tab names/order, local file tabs, selected tabs, caret positions, file encodings, and debugger-pane visibility from `Iseberg/workbench.json` under local application data. Each tab starts a **fresh local runspace**: variables, functions, modules, console history/output, suspended execution, engine IDs/hit counts, and object snapshots are not restored. The existing profile opt-in still applies. Remote connections and credentials are never restored; clean remote documents are not reopened automatically. A workbench owned by another running instance is not restored.
-
-Workbench metadata is checkpointed every five seconds and when opening files or performing menu actions; normal exit captures it before disposing the tabs. It contains paths and configuration, not script text. Named local documents are read from their current disk versions. Untitled tabs reopen as blank placeholders until recovery is accepted. Missing/unreadable documents are reported rather than silently recreated or written to disk.
-
-Recovery stays separate: **Recover** opens interrupted unsaved text as detached, unsaved copies in the matching PowerShell tab, replacing an untitled placeholder when associated. A recovered named file does not replace its original disk-backed tab or overwrite its original path. Recovery includes the selected encoding. **Discard** deletes those recovery copies; **Cancel** leaves them for a later startup. Normal save/discard/closure removes a document's recovery copy.
-
-Local files and files in an idle owning remote connection are checked for external byte changes on activation and every five seconds while the workbench is active. **Reload** explicitly discards this tab's edits and undo history; **Keep Edits** preserves them without authorizing a future overwrite. Every local or remote save checks the destination's content version, including deletion and changes that retain the same timestamp/size. A conflict offers reload, cancel, or explicit **Overwrite**; another change after that decision rejects the write. Save As also confirms an existing destination. Atomic replacement and strict encoding failures leave unsaved edits intact.
-
-**File > File Encoding** selects UTF-8 with/without BOM, UTF-16/UTF-32 byte order and BOM variants, or a legacy code page. **Convert on save** changes the next write and marks the document modified; characters unsupported by the selected encoding are rejected, never replaced by question marks. **Reload with encoding** reinterprets the on-disk bytes and confirms before discarding edits. Unicode BOMs and existing line endings are preserved by default. Invalid BOM-less UTF-8 prompts for an explicit encoding rather than guessing a legacy code page.
-
-**File > Print** (Ctrl+P) opens an offline HTML snapshot of the current script, including unsaved edits, in the default browser. Use the preview's Print button or the browser's print command to choose a printer or Save as PDF. Script markup is escaped and no external resources are loaded. The preview is a local plaintext temporary file, owner-only on Unix, and is removed on normal workbench closure; printing does not save the script or change its dirty state.
-
-### Options and accessibility
-
-**Tools > Options** opens the two-tab, classic Windows-style dialog. **Colors and Fonts** provides script/console token and output-stream colors, RGB/hexadecimal editing, installed-font selection, a fixed-width font filter, point sizes, a live sample, and named themes. The default is Lucida Console at 9 points, with installed monospace fallbacks on other platforms. **General Settings** controls outlining, line numbers, duplicate-file warnings, save-before-run prompts, pane position, automatic IntelliSense and Enter selection, completion timeout, local/online help, the toolbar, built-in snippets, recovery interval, and recent-file count.
-
-**Manage Themes > Import / Export** transfers a versioned Iseberg JSON theme containing every editor/console/stream color and the font family/point size. Export writes the current Colors and Fonts draft. Import validates the entire file before changing the draft, confirms replacement of a same-named custom theme, and cannot replace built-in theme names. Malformed or unsupported files are reported, not converted into defaults. Imported changes reach the workbench/settings only after Apply or OK.
-
-**Apply** persists both tabs without closing the dialog; **OK** applies and closes; **Cancel** discards only changes made since the last Apply. **Restore Defaults** resets the dialog's preferences but preserves saved custom themes, recent-file history, zoom, Commands pane visibility, word wrap, profile opt-in, and window/pane geometry. Setting the recovery interval or recent-file count to `0` disables that feature.
-
-Window size, position, maximized state, separate top/right script-to-console ratios, and debugger/Commands widths persist on normal exit. Restored windows are constrained to an available monitor's work area; unavailable monitor positions move to the primary display. Minimizing does not replace the saved normal size.
-
-Autosave writes **recovery copies**, never overwrites a script on disk, and preserves its unsaved status. The recovery folder is created only when a dirty script is autosaved; cleanup does not require it to exist. After an interrupted session, startup offers to recover those copies as unsaved documents. Saving, discarding, or closing a script normally removes its copy. Recovery files are plaintext in `Iseberg/Recovery` under local application data; Unix copies are owner-only. Files belonging to another running instance are not recovered.
-
-Windows system colors, message-font metrics, and high-contrast changes are reflected in the interface; high contrast overrides custom editor colors without modifying saved themes. Controls expose accessible names and keyboard focus cues, and editors expose their text and read-only state through an automation value provider. Native screen-reader text-navigation parity has not been verified. UI labels for Options, menus, toolbar actions, and status are backed by English `.resx` resources, with English fallback for untranslated cultures.
-
-Use **Ctrl+Tab / Ctrl+Shift+Tab** to switch script tabs, **Ctrl+Tab** to switch Options pages, **F6 / Shift+F6** to cycle visible workbench panes, and **F10** to focus the menu when not paused in the debugger. Menus retain the last text-editing target for clipboard actions; editors also have context menus.
-
-## Build and test
+Build and run the tests from the repository root:
 
 ```powershell
 dotnet build Iseberg.slnx
 dotnet test Iseberg.slnx
-dotnet publish src/Iseberg -c Release -r win-x64 --self-contained true -o ./publish/win-x64
 ```
 
-Use `linux-x64`, `linux-arm64`, `osx-x64`, or `osx-arm64` as appropriate. The default build includes PowerShell and must remain untrimmed. Release builds omit Avalonia developer tooling.
-
-To create distribution packages, use PowerShell 7 on the corresponding OS:
-
-```powershell
-./packaging/Package.ps1 -Runtime win-x64 -Version 1.2.3
-```
-
-The script publishes self-contained files and writes versioned packages to `publish/artifacts/<runtime>`. Windows restores the pinned WiX tool; macOS uses `hdiutil` and `zip`; Linux uses `zip`. Each run requires fresh output directories. macOS ZIPs contain the full `.app` bundle; Unix ZIPs preserve executable permissions. The original `dotnet publish` path is unchanged.
-
-CI builds packages for all five runtimes after the existing platform tests, using `0.0.<run-number>-ci` versions, and uploads the MSI/DMG/ZIP files as Actions artifacts. **Release packages** runs when a version tag (`v1.2.3` or `1.2.3`, optionally with a prerelease suffix) is pushed or a release is published. It builds from that tag, stamps the application with the release version, and attaches the same packages directly to the release after all packaging jobs succeed. A tag push creates a release if needed; prerelease tags create prereleases. Publishing an existing release preserves its title/body. The workflow needs `contents: write` only for uploading/creating releases. Version numbers must fit MSI limits (major/minor at most 255, patch at most 65535). Release assets use `Iseberg-<version>-<runtime>.<extension>`, which the update checker also uses.
-
-CI also builds and checks compact distributions natively for `win-x64`, `linux-x64`, `linux-arm64`, `osx-x64`, and `osx-arm64`, uploading their ZIPs as separate Actions artifacts.
-
-### Compact single-file distribution
-
-The `Compact` publish profile produces one compressed, self-contained executable without bundling the PowerShell engine, modules, or its third-party dependencies. Install **PowerShell 7.6.6 or a newer stable 7.6.x patch**, using **.NET 10.0** and the **same architecture** as Iseberg. A separate .NET installation is not required: the executable includes its own runtime.
-
-Iseberg discovers `pwsh` on `PATH`, without loading profiles. To select another installation, set `ISEBERG_PSHOME` to the directory containing `pwsh`/`pwsh.exe`, `pwsh.dll`, and `System.Management.Automation.dll`. Missing or incompatible installations produce a startup error rather than silently selecting another engine.
-
-```powershell
-dotnet publish src/Iseberg -c Release -r win-x64 -p:PublishProfile=Compact -o ./publish/compact-win-x64
-./publish/compact-win-x64/Iseberg.exe --check-runtime | Out-Host
-```
-
-Use the matching runtime identifier on Linux/macOS and run `Iseberg` instead of `Iseberg.exe`. `--check-runtime` checks real runspace execution, module loading, JSON cmdlets, `Add-Type`, command discovery/forms/help, completion, parsing, breakpoint inspection/resume, and settings serialization without opening the desktop. It returns a nonzero exit code on failure and also works with the full distribution.
-
-Trimming is deliberately partial: Avalonia's trim-compatible libraries are trimmed, while the application's reflection-bound models, AvaloniaEdit, and .NET framework APIs used by dynamically loaded scripts are preserved. Compiler reference assemblies are included for `Add-Type`. NativeAOT is not supported because this in-process PowerShell host requires dynamic assembly loading and code generation.
-
-At launch the single file extracts its bundled assemblies/native libraries into .NET's extraction cache. The cache must be writable; set `DOTNET_BUNDLE_EXTRACT_BASE_DIR` to change its location. Keep the selected PowerShell installation available while Iseberg runs. All-users profile paths come from that engine installation; user profiles remain opt-in.
-
-To create both ZIP distributions on a matching OS/architecture with compatible PowerShell installed:
-
-```powershell
-./build/Publish.ps1 -Runtime win-x64
-```
-
-Each compact-package platform artifact contains `Iseberg-<runtime>-compact.zip` (one executable, installed PowerShell required). Packaging verifies the compact ZIP is smaller and preserves Unix executable permissions.
-
-The test suite exercises real PowerShell execution, session isolation, formatted output, input/cancellation, errors, command metadata, completion, script paths, breakpoints/stepping, file encodings, dirty state, parser folding, settings, and headless desktop construction. Compact installation checks require compatible PowerShell as described above. Remoting tests require `pwsh` on `PATH`: they launch isolated child processes and connect over PowerShell's named-pipe remoting transport, without needing an SSH/WSMan server. They exercise interactive `Enter-PSSession`, remote files, completion, debugger inspection/source navigation, stopping, and connection loss. SSH/WSMan authentication and external-server configuration still need environment-specific verification.
-
-## Visual Studio Code
-
-Open the repository folder in VS Code and install the recommended **C#** and **Avalonia for VS Code** extensions.
-
-- **F5** launches `Iseberg: Debug` after building the solution. **Ctrl+F5** uses the selected launch configuration without attaching the debugger.
-- Select `Iseberg: Release` to launch an optimized build without Avalonia developer tools.
-- Select `Iseberg: Debug current script` with a saved PowerShell script active in VS Code to open that file in Iseberg. C# breakpoints debug the application; PowerShell script breakpoints are managed inside Iseberg.
-- Select `Iseberg: Attach` to choose an already-running application process.
-- **Ctrl+Shift+B** runs the default Debug build. **Terminal > Run Task** also offers Release build, Release tests, and self-contained publishing with a target-platform picker.
-
-Published files go into `publish/<runtime>` and are ignored by Git. Launch paths use VS Code's platform-specific path separator, so the same configurations work on Windows, Linux, and macOS.
-
-## Architecture
-
-- `src/Iseberg.Core`: persistent PowerShell host/runspace, execution, completion, debugging, parser analysis, file persistence, preferences.
-- `src/Iseberg`: native Avalonia workbench, per-file text documents/undo, highlighting, console rendering, menus, dialogs, command explorer.
-- `tests/Iseberg.Tests`: engine and headless desktop tests.
-
-See [the architecture overview](docs/architecture.md) for module responsibilities and design decisions.
+The [development guide](docs/development.md) covers test prerequisites, full and compact distributions, runtime checks, and VS Code launch configurations.
