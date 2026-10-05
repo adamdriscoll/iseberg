@@ -170,6 +170,11 @@ public sealed class RemotingTests
                 $"[DEBUG-ci-remote-save] {DateTime.UtcNow:O} {stage}{Environment.NewLine}");
         }
         Progress("starting server");
+        var logDirectory = Path.Combine(Environment.GetEnvironmentVariable("GITHUB_WORKSPACE") ??
+            Directory.GetCurrentDirectory(), "TestResults");
+        using var log = new StreamWriter(Path.Combine(logDirectory, "remote-connect-progress.log"), append: true) { AutoFlush = true };
+        using var listener = new TextWriterTraceListener(log);
+        Trace.Listeners.Add(listener);
         await using var server = await RemoteServer.StartAsync();
         Progress("initializing session");
         await using var session = new PowerShellSession();
@@ -205,6 +210,7 @@ public sealed class RemotingTests
         {
             File.Delete(path);
             Progress("beginning automatic disposal");
+            Trace.Listeners.Remove(listener);
         }
     }
 
