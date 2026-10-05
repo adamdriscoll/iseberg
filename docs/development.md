@@ -66,13 +66,13 @@ macOS ZIPs contain the full `.app` bundle; Unix ZIPs preserve executable permiss
 
 ### Release workflow
 
-CI builds packages for all five runtimes after the existing platform tests, using `0.0.<run-number>-ci` versions, and uploads the MSI/DMG/ZIP files as Actions artifacts.
+CI builds full and compact packages for all five runtimes after the existing platform tests, using `0.0.<run-number>-ci` versions, and uploads the MSI/DMG/ZIP files as Actions artifacts. Both CI and releases use the same reusable packaging workflow, including native compact runtime checks.
 
-**Release packages** runs when a version tag (`v1.2.3` or `1.2.3`, optionally with a prerelease suffix) is pushed or a release is published. It builds from that tag, stamps the application with the release version, and attaches the same packages directly to the release after all packaging jobs succeed.
+**Release packages** runs when a version tag (`v1.2.3` or `1.2.3`, optionally with a prerelease suffix) is pushed or a release is published. It builds from that tag, stamps both distributions with the release version, and attaches the full packages and compact ZIPs directly to the release after all packaging jobs succeed.
 
 A tag push creates a release if needed; prerelease tags create prereleases. Publishing an existing release preserves its title/body. The workflow needs `contents: write` only for uploading/creating releases.
 
-Version numbers must fit MSI limits (major/minor at most 255, patch at most 65535). Release assets use `Iseberg-<version>-<runtime>.<extension>`, which the update checker also uses.
+Version numbers must fit MSI limits (major/minor at most 255, patch at most 65535). Full release assets use `Iseberg-<version>-<runtime>.<extension>`, which the update checker also uses. Compact release assets use `Iseberg-<version>-<runtime>-compact.zip`.
 
 ### Compact single-file distribution
 
@@ -105,7 +105,9 @@ To create both ZIP distributions on a matching OS/architecture with compatible P
 ./build/Publish.ps1 -Runtime win-x64
 ```
 
-CI also builds and checks compact distributions natively for `win-x64`, `linux-x64`, `linux-arm64`, `osx-x64`, and `osx-arm64`, uploading their ZIPs as separate Actions artifacts. Each compact-package platform artifact contains `Iseberg-<runtime>-compact.zip` (one executable, installed PowerShell required).
+Without `-Version`, the script writes `publish/Iseberg-<runtime>.zip` and `publish/Iseberg-<runtime>-compact.zip`. Add `-Version 1.2.3` to stamp both applications and write versioned ZIP names, including `publish/Iseberg-1.2.3-<runtime>-compact.zip`.
+
+CI and releases build and check compact distributions natively for `win-x64`, `linux-x64`, `linux-arm64`, `osx-x64`, and `osx-arm64`, uploading their ZIPs as separate Actions artifacts. Each compact-package platform artifact contains `Iseberg-<version>-<runtime>-compact.zip` (one executable, installed PowerShell required).
 
 Packaging verifies the compact ZIP is smaller and preserves Unix executable permissions.
 

@@ -1,10 +1,19 @@
 param(
     [Parameter(Mandatory)]
     [ValidateSet('win-x64', 'linux-x64', 'linux-arm64', 'osx-x64', 'osx-arm64')]
-    [string] $Runtime
+    [string] $Runtime,
+    [ValidateNotNullOrEmpty()]
+    [ValidatePattern('^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$')]
+    [string] $Version
 )
 
 $ErrorActionPreference = 'Stop'
+$versionArguments = @()
+$name = "Iseberg-$Runtime"
+if ($Version) {
+    $versionArguments = @("-p:Version=$Version")
+    $name = "Iseberg-$Version-$Runtime"
+}
 $root = Split-Path $PSScriptRoot
 $project = Join-Path (Join-Path $root 'src') 'Iseberg'
 $destination = Join-Path $root 'publish'
@@ -67,9 +76,9 @@ Push-Location $root
 try {
     $full = Join-Path $staging 'full'
     $compact = Join-Path $staging 'compact'
-    & dotnet publish $project -c Release -r $Runtime --self-contained true -o $full --verbosity minimal
+    & dotnet publish $project -c Release -r $Runtime --self-contained true -o $full --verbosity minimal @versionArguments
     if ($LASTEXITCODE -ne 0) { throw "Full publish failed with exit code $LASTEXITCODE." }
-    & dotnet publish $project -c Release -r $Runtime -p:PublishProfile=Compact -o $compact --verbosity minimal
+    & dotnet publish $project -c Release -r $Runtime -p:PublishProfile=Compact -o $compact --verbosity minimal @versionArguments
     if ($LASTEXITCODE -ne 0) { throw "Compact publish failed with exit code $LASTEXITCODE." }
 
     $files = @(Get-ChildItem -LiteralPath $compact -Recurse -File)
@@ -80,8 +89,8 @@ try {
     Test-Runtime (Join-Path $compact $executable)
     Test-Runtime (Join-Path $compact $executable) -ExpectFailure $true
 
-    $fullZip = Join-Path $destination "Iseberg-$Runtime.zip"
-    $compactZip = Join-Path $destination "Iseberg-$Runtime-compact.zip"
+    $fullZip = Join-Path $destination "$name.zip"
+    $compactZip = Join-Path $destination "$name-compact.zip"
     New-DistributionArchive $full $fullZip
     New-DistributionArchive $compact $compactZip
     if ((Get-Item $compactZip).Length -ge (Get-Item $fullZip).Length) {
