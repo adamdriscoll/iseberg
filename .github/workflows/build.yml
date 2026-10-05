@@ -43,36 +43,3 @@ jobs:
     uses: ./.github/workflows/package.yml
     with:
       version: 0.0.${{ github.run_number }}-ci
-  compact-package:
-    needs: test
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            runtime: win-x64
-          - os: ubuntu-latest
-            runtime: linux-x64
-          - os: ubuntu-24.04-arm
-            runtime: linux-arm64
-          - os: macos-15-intel
-            runtime: osx-x64
-          - os: macos-latest
-            runtime: osx-arm64
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - name: Install matching PowerShell for compact runtime checks
-        shell: pwsh
-        run: ./build/Install-TestPowerShell.ps1 -Runtime '${{ matrix.runtime }}'
-      - name: Publish, check and package both distributions
-        shell: pwsh
-        run: ./build/Publish.ps1 -Runtime '${{ matrix.runtime }}'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Iseberg-${{ matrix.runtime }}-compact
-          path: publish/*-compact.zip
-          if-no-files-found: error
