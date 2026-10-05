@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="StartupFailureTitle" xml:space="preserve"><value>Iseberg could not start</value></data>
   <data name="NestedPromptStatus" xml:space="preserve"><value>Nested prompt - enter exit to return, or Stop to cancel execution.</value></data>
   <data name="CommandErrorTitle" xml:space="preserve"><value>Show-Command execution errors</value></data>
   <data name="UnsupportedTerminalControl" xml:space="preserve"><value>Unsupported terminal control was ignored. Use Start-IsebergTerminal for interactive terminal applications.</value></data>

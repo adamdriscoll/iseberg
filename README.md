@@ -141,9 +141,34 @@ dotnet test Iseberg.slnx
 dotnet publish src/Iseberg -c Release -r win-x64 --self-contained true -o ./publish/win-x64
 ```
 
-Use `linux-x64`, `linux-arm64`, `osx-x64`, or `osx-arm64` as appropriate. Do not enable trimming or Native AOT: the PowerShell engine and module discovery depend on reflection and dynamic loading. Release builds omit Avalonia developer tooling.
+Use `linux-x64`, `linux-arm64`, `osx-x64`, or `osx-arm64` as appropriate. The default build includes PowerShell and must remain untrimmed. Release builds omit Avalonia developer tooling.
 
-The test suite exercises real PowerShell execution, session isolation, formatted output, input/cancellation, errors, command metadata, completion, script paths, breakpoints/stepping, file encodings, dirty state, parser folding, settings, and headless desktop construction. Remoting tests additionally require `pwsh` on `PATH`: they launch isolated child processes and connect over PowerShell's named-pipe remoting transport, without needing an SSH/WSMan server. They exercise interactive `Enter-PSSession`, remote files, completion, debugger inspection/source navigation, stopping, and connection loss. SSH/WSMan authentication and external-server configuration still need environment-specific verification.
+### Compact single-file distribution
+
+The `Compact` publish profile produces one compressed, self-contained executable without bundling the PowerShell engine, modules, or its third-party dependencies. Install **PowerShell 7.6.6 or a newer stable 7.6.x patch**, using **.NET 10.0** and the **same architecture** as Iseberg. A separate .NET installation is not required: the executable includes its own runtime.
+
+Iseberg discovers `pwsh` on `PATH`, without loading profiles. To select another installation, set `ISEBERG_PSHOME` to the directory containing `pwsh`/`pwsh.exe`, `pwsh.dll`, and `System.Management.Automation.dll`. Missing or incompatible installations produce a startup error rather than silently selecting another engine.
+
+```powershell
+dotnet publish src/Iseberg -c Release -r win-x64 -p:PublishProfile=Compact -o ./publish/compact-win-x64
+./publish/compact-win-x64/Iseberg.exe --check-runtime | Out-Host
+```
+
+Use the matching runtime identifier on Linux/macOS and run `Iseberg` instead of `Iseberg.exe`. `--check-runtime` checks real runspace execution, module loading, JSON cmdlets, `Add-Type`, command discovery/forms/help, completion, parsing, breakpoint inspection/resume, and settings serialization without opening the desktop. It returns a nonzero exit code on failure and also works with the full distribution.
+
+Trimming is deliberately partial: Avalonia's trim-compatible libraries are trimmed, while the application's reflection-bound models, AvaloniaEdit, and .NET framework APIs used by dynamically loaded scripts are preserved. Compiler reference assemblies are included for `Add-Type`. NativeAOT is not supported because this in-process PowerShell host requires dynamic assembly loading and code generation.
+
+At launch the single file extracts its bundled assemblies/native libraries into .NET's extraction cache. The cache must be writable; set `DOTNET_BUNDLE_EXTRACT_BASE_DIR` to change its location. Keep the selected PowerShell installation available while Iseberg runs. All-users profile paths come from that engine installation; user profiles remain opt-in.
+
+To create both ZIP distributions on a matching OS/architecture with compatible PowerShell installed:
+
+```powershell
+./build/Publish.ps1 -Runtime win-x64
+```
+
+CI publishes and checks both variants natively for `win-x64`, `linux-x64`, `linux-arm64`, `osx-x64`, and `osx-arm64`. Each platform artifact contains `Iseberg-<runtime>.zip` (bundled PowerShell) and `Iseberg-<runtime>-compact.zip` (one executable, installed PowerShell required). Packaging verifies the compact ZIP is smaller and preserves Unix executable permissions.
+
+The test suite exercises real PowerShell execution, session isolation, formatted output, input/cancellation, errors, command metadata, completion, script paths, breakpoints/stepping, file encodings, dirty state, parser folding, settings, and headless desktop construction. Installation checks require compatible PowerShell as described above; remoting tests also require `pwsh` on `PATH`: they launch isolated child processes and connect over PowerShell's named-pipe remoting transport, without needing an SSH/WSMan server. They exercise interactive `Enter-PSSession`, remote files, completion, debugger inspection/source navigation, stopping, and connection loss. SSH/WSMan authentication and external-server configuration still need environment-specific verification.
 
 ## Visual Studio Code
 
