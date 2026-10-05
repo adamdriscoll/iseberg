@@ -75,3 +75,11 @@ Output spans retain explicit foreground/background and SGR styles. A bounded str
 Snippet parsing and serialization are engine-independent. Import validates the PowerShell namespace/schema and metadata with DTDs/external entity resolution disabled. Stored custom snippets are plain XML, loaded without execution. The built-in catalog includes workflow/classic DSC authoring entries but labels their Windows PowerShell requirements explicitly.
 
 Native title bars and file dialogs follow the host operating system.
+
+## Compact distribution
+
+The optional `Compact` publish profile excludes the PowerShell SDK's runtime/content assets while retaining its compile-time API references. `Program` discovers and validates an installed PowerShell before entering a non-inlined desktop/core entry point, so the JIT cannot resolve engine types before the assembly resolver is registered. Managed and native dependencies resolve from that installation using its `pwsh.deps.json`; the application and framework keep their default load-context identity.
+
+The bundle includes its own .NET runtime and uses partial trimming for trim-compatible UI dependencies. Application/core models, AvaloniaEdit, and framework APIs are rooted because reflection bindings, JSON serialization, scripts, and external modules can access otherwise unreachable members. The engine itself is neither trimmed nor bundled. Full extraction and unmodified .NET compiler reference assemblies preserve the physical assembly paths required by PowerShell's `Add-Type`. NativeAOT is intentionally unsupported for this dynamic in-process engine.
+
+The packaging script checks real engine behavior in both distributions, verifies an explicit missing-installation failure and a single-file compact output, compares archive sizes, and produces separate platform ZIPs. CI runs it on native x64/ARM64 hosts rather than treating a successful cross-publish as runtime verification.

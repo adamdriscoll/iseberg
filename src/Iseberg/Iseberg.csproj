@@ -4,6 +4,9 @@
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(IsebergCompact)' == 'true'">
+    <DefineConstants>$(DefineConstants);ISEBERG_COMPACT</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.3.22" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
@@ -14,4 +17,31 @@
   <ItemGroup>
     <ProjectReference Include="..\Iseberg.Core\Iseberg.Core.csproj" />
   </ItemGroup>
+  <Target Name="ValidateCompactPublish" BeforeTargets="PrepareForPublish" Condition="'$(IsebergCompact)' == 'true'">
+    <Error Condition="'$(PublishAot)' == 'true'"
+           Text="NativeAOT is not supported by the in-process PowerShell engine. Use the Compact profile without PublishAot." />
+  </Target>
+  <Target Name="PreserveCompactRuntime" BeforeTargets="PrepareForILLink" Condition="'$(IsebergCompact)' == 'true'">
+    <ItemGroup>
+      <!-- Scripts and reflection bindings can use APIs not statically reachable from the desktop. -->
+      <TrimmerRootAssembly Include="@(RuntimePackAsset->'%(Filename)')" Condition="'%(RuntimePackAsset.AssetType)' == 'runtime'" />
+      <TrimmerRootAssembly Include="Iseberg;Iseberg.Core;AvaloniaEdit" />
+    </ItemGroup>
+  </Target>
+  <Target Name="RemoveCompactPowerShellManifests" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(IsebergCompact)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.RelativePath)' == 'build.manifest' Or '%(ResolvedFileToPublish.RelativePath)' == 'build.manifest.sig'" />
+    </ItemGroup>
+  </Target>
+  <Target Name="IncludeCompactCompilerReferences" AfterTargets="ILLink" BeforeTargets="GenerateSingleFileBundle"
+          Condition="'$(IsebergCompact)' == 'true'">
+    <ItemGroup>
+      <!-- Add-Type looks beside the entry assembly for unmodified .NET compiler references. -->
+      <ResolvedFileToPublish Include="@(ReferencePath)" Condition="'%(ReferencePath.FrameworkReferenceName)' == 'Microsoft.NETCore.App'">
+        <RelativePath>ref\%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 </Project>
