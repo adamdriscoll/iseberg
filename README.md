@@ -48,6 +48,7 @@ The default view has a white script editor above the blue console, a Commands pa
 |---|---|
 | New / open / save script | Ctrl+N / Ctrl+O / Ctrl+S |
 | Save as / close script | Ctrl+Shift+S / Ctrl+W |
+| Print script snapshot | Ctrl+P |
 | New / close PowerShell tab | Ctrl+T / Ctrl+Shift+W |
 | Run script / continue debugging | F5 |
 | Run selection, or current line | F8 |
@@ -127,7 +128,7 @@ Remote breakpoint stops open remote source in the editor and show the same Varia
 
 F9 or a left-click in the dedicated gutter beside a script line toggles its breakpoint; the marker follows inserted/deleted text. The gutter stays separate from the text, even with line numbers hidden or the editor scrolled/wrapped. Enabled breakpoints use filled red circles, disabled breakpoints use hollow circles, and the stopped statement has an arrow. Subtle translucent line highlights preserve the editor's background and syntax colors in light/dark themes; high contrast relies on gutter symbols without tinting the text.
 
-**Debug > Debugger Panes** shows Variables, Watch, Call Stack, and Breakpoints in a full-height, resizable dock to the right of the editor/console, and opens automatically when execution pauses. The debugger and Commands docks can be shown or closed independently; their widths are retained while toggling visibility during the application session. Expand variable/watch objects to inspect properties, dictionary entries, and indexed array/list elements. Children load on demand in pages of up to 100, with **Load more** for larger collections. Property-getter failures appear beside the affected member. Refreshing or resuming discards old object references.
+**Debug > Debugger Panes** shows Variables, Watch, Call Stack, and Breakpoints in a full-height, resizable dock to the right of the editor/console, and opens automatically when execution pauses. The debugger and Commands docks can be shown or closed independently; their widths persist across visibility changes and application restarts. Expand variable/watch objects to inspect properties, dictionary entries, and indexed array/list elements. Children load on demand in pages of up to 100, with **Load more** for larger collections. Property-getter failures appear beside the affected member. Refreshing or resuming discards old object references.
 
 Add PowerShell expressions in Watch; results refresh on each pause, after console evaluation, or with **Refresh**. Evaluation failures appear beside the affected watch. Select a call-stack frame to inspect its local variables; double-click to navigate to its source. The pane labels the inspected frame and explicitly identifies evaluation as using the stopped frame. Commands, F8, watches, and completion always use the stopped scope, not the selected caller. PowerShell does not expose arbitrary caller-scope execution; callers whose variable scope cannot be verified, including some dotted/module boundaries, report an inspection error instead of showing another scope's variables.
 
@@ -137,13 +138,31 @@ While paused, enter commands in the console at the `[DBG]: PS>` prompt, or use F
 
 Paused IntelliSense uses PowerShell's debugger command queue, so variables and members are completed against the suspended runspace. Console Tab/Shift+Tab and Ctrl+Space remain available. Ctrl+Space can also display suggestions in the paused script editor, but accepting a suggestion cannot modify that read-only script. Completion cancellation/timeouts do not resume the script.
 
-Watches, conditions, actions, property getters, and console commands execute real PowerShell with your permissions and can have side effects. Watches and breakpoint specifications (including conditions/actions, enabled state, and variable access modes) persist independently by PowerShell tab name in the user's `Iseberg/settings.json`. The first tab restores on startup; creating additional numbered tabs restores their matching configurations. This does not restore open documents or running sessions. Unsaved-script breakpoint markers, engine IDs/hit counts, selected frames, and inspected object values are not persisted. Saved watch expressions and breakpoint code are plaintext; avoid embedding secrets in them.
+Watches, conditions, actions, property getters, and console commands execute real PowerShell with your permissions and can have side effects. Watches and breakpoint specifications (including conditions/actions, enabled state, and variable access modes) persist independently by PowerShell tab name in the user's `Iseberg/settings.json`. Restored tabs and newly created numbered tabs load their matching configurations. This never restores running or suspended execution. Unsaved-script breakpoint markers, engine IDs/hit counts, selected frames, and inspected object values are not persisted. Saved watch expressions and breakpoint code are plaintext; avoid embedding secrets in them.
+
+### Files, sessions, and printing
+
+Startup automatically restores PowerShell tab names/order, local file tabs, selected tabs, caret positions, file encodings, and debugger-pane visibility from `Iseberg/workbench.json` under local application data. Each tab starts a **fresh local runspace**: variables, functions, modules, console history/output, suspended execution, engine IDs/hit counts, and object snapshots are not restored. The existing profile opt-in still applies. Remote connections and credentials are never restored; clean remote documents are not reopened automatically. A workbench owned by another running instance is not restored.
+
+Workbench metadata is checkpointed every five seconds and when opening files or performing menu actions; normal exit captures it before disposing the tabs. It contains paths and configuration, not script text. Named local documents are read from their current disk versions. Untitled tabs reopen as blank placeholders until recovery is accepted. Missing/unreadable documents are reported rather than silently recreated or written to disk.
+
+Recovery stays separate: **Recover** opens interrupted unsaved text as detached, unsaved copies in the matching PowerShell tab, replacing an untitled placeholder when associated. A recovered named file does not replace its original disk-backed tab or overwrite its original path. Recovery includes the selected encoding. **Discard** deletes those recovery copies; **Cancel** leaves them for a later startup. Normal save/discard/closure removes a document's recovery copy.
+
+Local files and files in an idle owning remote connection are checked for external byte changes on activation and every five seconds while the workbench is active. **Reload** explicitly discards this tab's edits and undo history; **Keep Edits** preserves them without authorizing a future overwrite. Every local or remote save checks the destination's content version, including deletion and changes that retain the same timestamp/size. A conflict offers reload, cancel, or explicit **Overwrite**; another change after that decision rejects the write. Save As also confirms an existing destination. Atomic replacement and strict encoding failures leave unsaved edits intact.
+
+**File > File Encoding** selects UTF-8 with/without BOM, UTF-16/UTF-32 byte order and BOM variants, or a legacy code page. **Convert on save** changes the next write and marks the document modified; characters unsupported by the selected encoding are rejected, never replaced by question marks. **Reload with encoding** reinterprets the on-disk bytes and confirms before discarding edits. Unicode BOMs and existing line endings are preserved by default. Invalid BOM-less UTF-8 prompts for an explicit encoding rather than guessing a legacy code page.
+
+**File > Print** (Ctrl+P) opens an offline HTML snapshot of the current script, including unsaved edits, in the default browser. Use the preview's Print button or the browser's print command to choose a printer or Save as PDF. Script markup is escaped and no external resources are loaded. The preview is a local plaintext temporary file, owner-only on Unix, and is removed on normal workbench closure; printing does not save the script or change its dirty state.
 
 ### Options and accessibility
 
 **Tools > Options** opens the two-tab, classic Windows-style dialog. **Colors and Fonts** provides script/console token and output-stream colors, RGB/hexadecimal editing, installed-font selection, a fixed-width font filter, point sizes, a live sample, and named themes. The default is Lucida Console at 9 points, with installed monospace fallbacks on other platforms. **General Settings** controls outlining, line numbers, duplicate-file warnings, save-before-run prompts, pane position, automatic IntelliSense and Enter selection, completion timeout, local/online help, the toolbar, built-in snippets, recovery interval, and recent-file count.
 
-**Apply** persists both tabs without closing the dialog; **OK** applies and closes; **Cancel** discards only changes made since the last Apply. **Restore Defaults** resets the dialog's preferences but preserves saved custom themes, recent-file history, zoom, Commands pane visibility, word wrap, and profile opt-in. Setting the recovery interval or recent-file count to `0` disables that feature.
+**Manage Themes > Import / Export** transfers a versioned Iseberg JSON theme containing every editor/console/stream color and the font family/point size. Export writes the current Colors and Fonts draft. Import validates the entire file before changing the draft, confirms replacement of a same-named custom theme, and cannot replace built-in theme names. Malformed or unsupported files are reported, not converted into defaults. Imported changes reach the workbench/settings only after Apply or OK.
+
+**Apply** persists both tabs without closing the dialog; **OK** applies and closes; **Cancel** discards only changes made since the last Apply. **Restore Defaults** resets the dialog's preferences but preserves saved custom themes, recent-file history, zoom, Commands pane visibility, word wrap, profile opt-in, and window/pane geometry. Setting the recovery interval or recent-file count to `0` disables that feature.
+
+Window size, position, maximized state, separate top/right script-to-console ratios, and debugger/Commands widths persist on normal exit. Restored windows are constrained to an available monitor's work area; unavailable monitor positions move to the primary display. Minimizing does not replace the saved normal size.
 
 Autosave writes **recovery copies**, never overwrites a script on disk, and preserves its unsaved status. The recovery folder is created only when a dirty script is autosaved; cleanup does not require it to exist. After an interrupted session, startup offers to recover those copies as unsaved documents. Saving, discarding, or closing a script normally removes its copy. Recovery files are plaintext in `Iseberg/Recovery` under local application data; Unix copies are owner-only. Files belonging to another running instance are not recovered.
 
@@ -159,7 +178,7 @@ dotnet test Iseberg.slnx
 dotnet publish src/Iseberg -c Release -r win-x64 --self-contained true -o ./publish/win-x64
 ```
 
-Use `linux-x64`, `linux-arm64`, `osx-x64`, or `osx-arm64` as appropriate. Do not enable trimming or Native AOT: the PowerShell engine and module discovery depend on reflection and dynamic loading. Release builds omit Avalonia developer tooling.
+Use `linux-x64`, `linux-arm64`, `osx-x64`, or `osx-arm64` as appropriate. The default build includes PowerShell and must remain untrimmed. Release builds omit Avalonia developer tooling.
 
 To create distribution packages, use PowerShell 7 on the corresponding OS:
 
@@ -171,7 +190,34 @@ The script publishes self-contained files and writes versioned packages to `publ
 
 CI builds packages for all five runtimes after the existing platform tests, using `0.0.<run-number>-ci` versions, and uploads the MSI/DMG/ZIP files as Actions artifacts. **Release packages** runs when a version tag (`v1.2.3` or `1.2.3`, optionally with a prerelease suffix) is pushed or a release is published. It builds from that tag, stamps the application with the release version, and attaches the same packages directly to the release after all packaging jobs succeed. A tag push creates a release if needed; prerelease tags create prereleases. Publishing an existing release preserves its title/body. The workflow needs `contents: write` only for uploading/creating releases. Version numbers must fit MSI limits (major/minor at most 255, patch at most 65535). Release assets use `Iseberg-<version>-<runtime>.<extension>`, which the update checker also uses.
 
-The test suite exercises real PowerShell execution, session isolation, formatted output, input/cancellation, errors, command metadata, completion, script paths, breakpoints/stepping, file encodings, dirty state, parser folding, settings, and headless desktop construction. Remoting tests additionally require `pwsh` on `PATH`: they launch isolated child processes and connect over PowerShell's named-pipe remoting transport, without needing an SSH/WSMan server. They exercise interactive `Enter-PSSession`, remote files, completion, debugger inspection/source navigation, stopping, and connection loss. SSH/WSMan authentication and external-server configuration still need environment-specific verification.
+CI also builds and checks compact distributions natively for `win-x64`, `linux-x64`, `linux-arm64`, `osx-x64`, and `osx-arm64`, uploading their ZIPs as separate Actions artifacts.
+
+### Compact single-file distribution
+
+The `Compact` publish profile produces one compressed, self-contained executable without bundling the PowerShell engine, modules, or its third-party dependencies. Install **PowerShell 7.6.6 or a newer stable 7.6.x patch**, using **.NET 10.0** and the **same architecture** as Iseberg. A separate .NET installation is not required: the executable includes its own runtime.
+
+Iseberg discovers `pwsh` on `PATH`, without loading profiles. To select another installation, set `ISEBERG_PSHOME` to the directory containing `pwsh`/`pwsh.exe`, `pwsh.dll`, and `System.Management.Automation.dll`. Missing or incompatible installations produce a startup error rather than silently selecting another engine.
+
+```powershell
+dotnet publish src/Iseberg -c Release -r win-x64 -p:PublishProfile=Compact -o ./publish/compact-win-x64
+./publish/compact-win-x64/Iseberg.exe --check-runtime | Out-Host
+```
+
+Use the matching runtime identifier on Linux/macOS and run `Iseberg` instead of `Iseberg.exe`. `--check-runtime` checks real runspace execution, module loading, JSON cmdlets, `Add-Type`, command discovery/forms/help, completion, parsing, breakpoint inspection/resume, and settings serialization without opening the desktop. It returns a nonzero exit code on failure and also works with the full distribution.
+
+Trimming is deliberately partial: Avalonia's trim-compatible libraries are trimmed, while the application's reflection-bound models, AvaloniaEdit, and .NET framework APIs used by dynamically loaded scripts are preserved. Compiler reference assemblies are included for `Add-Type`. NativeAOT is not supported because this in-process PowerShell host requires dynamic assembly loading and code generation.
+
+At launch the single file extracts its bundled assemblies/native libraries into .NET's extraction cache. The cache must be writable; set `DOTNET_BUNDLE_EXTRACT_BASE_DIR` to change its location. Keep the selected PowerShell installation available while Iseberg runs. All-users profile paths come from that engine installation; user profiles remain opt-in.
+
+To create both ZIP distributions on a matching OS/architecture with compatible PowerShell installed:
+
+```powershell
+./build/Publish.ps1 -Runtime win-x64
+```
+
+Each compact-package platform artifact contains `Iseberg-<runtime>-compact.zip` (one executable, installed PowerShell required). Packaging verifies the compact ZIP is smaller and preserves Unix executable permissions.
+
+The test suite exercises real PowerShell execution, session isolation, formatted output, input/cancellation, errors, command metadata, completion, script paths, breakpoints/stepping, file encodings, dirty state, parser folding, settings, and headless desktop construction. Compact installation checks require compatible PowerShell as described above. Remoting tests require `pwsh` on `PATH`: they launch isolated child processes and connect over PowerShell's named-pipe remoting transport, without needing an SSH/WSMan server. They exercise interactive `Enter-PSSession`, remote files, completion, debugger inspection/source navigation, stopping, and connection loss. SSH/WSMan authentication and external-server configuration still need environment-specific verification.
 
 ## Visual Studio Code
 

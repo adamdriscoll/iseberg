@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.6.6" />
+    <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.6.6">
+      <ExcludeAssets Condition="'$(IsebergCompact)' == 'true'">runtime;contentFiles</ExcludeAssets>
+    </PackageReference>
   </ItemGroup>
 </Project>

@@ -6,6 +6,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Iseberg.Core;
 
 namespace Iseberg;
@@ -178,7 +179,7 @@ public sealed partial class OptionsWindow : Window
     {
         var wasUpdating = updating;
         updating = true;
-        var selected = EditorFont.SelectedItem as string ?? draft.FontFamily;
+        var selected = draft.FontFamily;
         var fonts = FontManager.Current.SystemFonts.Select(f => f.Name)
             .Where(f => FixedWidthOnly.IsChecked != true || IsFixedWidth(f))
             .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.CurrentCultureIgnoreCase).ToArray();
@@ -298,7 +299,7 @@ public sealed partial class OptionsWindow : Window
         {
             RecentFiles = draft.RecentFiles, CustomThemes = draft.CustomThemes,
             LoadProfiles = draft.LoadProfiles, ShowCommands = draft.ShowCommands, WordWrap = draft.WordWrap, Zoom = draft.Zoom,
-            HelpView = draft.HelpView.Copy(), DebuggerSessions = draft.DebuggerSessions
+            HelpView = draft.HelpView.Copy(), DebuggerSessions = draft.DebuggerSessions, Geometry = draft.Geometry
         };
         draft = defaults;
         colorValid = true;
@@ -355,7 +356,7 @@ public sealed partial class OptionsWindow : Window
         themes.AddRange(draft.CustomThemes);
         var manager = new Window
         {
-            Title = UiText.Get("ManageThemes"), Width = 440, Height = 300, CanResize = false,
+            Title = UiText.Get("ManageThemes"), Width = 540, Height = 300, CanResize = false,
             ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.CenterOwner, Icon = AppIcon.Create()
         };
         manager.Classes.Add("options");
@@ -363,11 +364,56 @@ public sealed partial class OptionsWindow : Window
         var panel = new Grid { RowDefinitions = new RowDefinitions("*,Auto") };
         panel.Children.Add(list);
         var buttons = new WrapPanel { Margin = new Thickness(10), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
-        foreach (var key in new[] { "SaveTheme", "DeleteTheme", "OK", "Cancel" })
+        foreach (var key in new[] { "SaveTheme", "DeleteTheme", "ImportTheme", "ExportTheme", "OK", "Cancel" })
         {
             var button = new Button { Content = UiText.Get(key), Margin = new Thickness(3), IsCancel = key == "Cancel", IsDefault = key == "OK" };
             button.Click += async (_, _) =>
             {
+                if (key is "ImportTheme" or "ExportTheme")
+                {
+                    try
+                    {
+                        var type = new FilePickerFileType(UiText.Get("ThemeFile")) { Patterns = ["*.json"] };
+                        if (key == "ImportTheme")
+                        {
+                            var files = await manager.StorageProvider.OpenFilePickerAsync(new()
+                            {
+                                Title = UiText.Get(key), FileTypeFilter = [type]
+                            });
+                            if (files.Count == 0) return;
+                            var imported = await ThemeFile.LoadAsync(files[0].TryGetLocalPath() ??
+                                throw new IOException("Only local theme files are supported."));
+                            if (themes.Take(3).Any(theme => theme.Name == imported.Theme.Name))
+                                throw new InvalidDataException(UiText.Get("ThemeBuiltinName"));
+                            if (draft.CustomThemes.Any(theme => theme.Name == imported.Theme.Name) &&
+                                await Dialogs.ChooseAsync(manager, UiText.Get("ManageThemes"), UiText.Get("ThemeOverwrite"),
+                                    UiText.Get("OK"), UiText.Get("Cancel")) != UiText.Get("OK")) return;
+                            ApplyImportedTheme(imported);
+                            themes.RemoveAll(theme => theme.Name == imported.Theme.Name);
+                            themes.Add(imported.Theme.Copy());
+                            list.ItemsSource = themes.Select(theme => theme.Name).ToArray();
+                            list.SelectedIndex = themes.Count - 1;
+                            LoadControls();
+                        }
+                        else
+                        {
+                            var file = await manager.StorageProvider.SaveFilePickerAsync(new()
+                            {
+                                Title = UiText.Get(key), SuggestedFileName = "theme.json", DefaultExtension = "json",
+                                ShowOverwritePrompt = true, FileTypeChoices = [type]
+                            });
+                            if (file is null) return;
+                            await ThemeFile.FromSettings(draft).SaveAsync(file.TryGetLocalPath() ??
+                                throw new IOException("Only local theme files are supported."));
+                        }
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+                    {
+                        System.Diagnostics.Trace.TraceError("Theme transfer failed: {0}", exception);
+                        await Dialogs.ChooseAsync(manager, UiText.Get("ManageThemes"), exception.Message, UiText.Get("OK"));
+                    }
+                    return;
+                }
                 if (key == "Cancel") { manager.Close(); return; }
                 if (key == "SaveTheme")
                 {
@@ -406,6 +452,20 @@ public sealed partial class OptionsWindow : Window
         manager.Content = panel;
         await manager.ShowDialog(this);
         UpdateDraft();
+    }
+
+    public void ApplyImportedTheme(ThemeFile imported)
+    {
+        imported.Validate();
+        updating = true;
+        draft.Theme = imported.Theme.Copy();
+        draft.FontFamily = imported.FontFamily;
+        draft.FontSize = imported.FontSize;
+        EditorFontSize.ItemsSource = ((IEnumerable<double>)EditorFontSize.ItemsSource!).Append(imported.FontSize).Distinct().Order().ToArray();
+        draft.CustomThemes.RemoveAll(theme => theme.Name == imported.Theme.Name);
+        draft.CustomThemes.Add(imported.Theme.Copy());
+        colorValid = true;
+        LoadControls();
     }
 
     private void OnDialogKeyDown(object? sender, KeyEventArgs e)

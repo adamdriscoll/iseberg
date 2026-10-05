@@ -20,12 +20,15 @@ public sealed partial class MainWindow
 
     public async Task OpenRemoteFileAsync(string path)
     {
+        if (windowClosed || closingInProgress) throw new InvalidOperationException("The workbench is closing.");
         var session = Workbench.SelectedSession ?? throw new InvalidOperationException("Select a PowerShell tab.");
         var existing = session.Files.FirstOrDefault(tab => tab.File.RemoteRunspaceId == session.Engine.RunspaceId &&
             string.Equals(tab.File.Path, path, StringComparison.Ordinal));
         if (existing is null)
         {
-            var file = await session.Engine.OpenRemoteFileAsync(path);
+            var file = await ReadFileAsync(session, path, remote: true);
+            if (file is null) return;
+            if (windowClosed || closingInProgress) throw new InvalidOperationException("The workbench closed while reading the remote file.");
             existing = session.Files.FirstOrDefault(tab => tab.File.RemoteRunspaceId == file.RemoteRunspaceId &&
                 string.Equals(tab.File.Path, file.Path, StringComparison.Ordinal));
             if (existing is null)

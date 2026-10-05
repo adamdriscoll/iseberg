@@ -32,6 +32,18 @@ public sealed class ToolbarIcon : Control
         switch (Kind)
         {
             case "New": Shape("M3,1 L11,1 15,5 15,17 3,17 Z", Brushes.White); Shape("M11,1 L11,5 15,5", Brushes.LightGray); break;
+            case "Encoding":
+                Shape("M2,1 L16,1 16,17 2,17 Z", Brushes.White);
+                Shape("M5,13 L8,5 11,13 M6,10 L10,10 M12,5 L14,5 M12,9 L14,9 M12,13 L14,13", Brushes.Transparent);
+                break;
+            case "Reload":
+                Shape("M14,5 C6,-1 0,7 4,13 C8,19 17,14 16,8 M14,1 L14,5 10,5", Brushes.Transparent);
+                break;
+            case "Print":
+                Shape("M5,1 L13,1 13,7 5,7 Z", Brushes.White);
+                Shape("M1,6 L17,6 17,13 1,13 Z", Brushes.LightGray);
+                Shape("M5,10 L13,10 13,17 5,17 Z M7,13 L11,13", Brushes.White);
+                break;
             case "OpenRemoteFile":
             case "Open": Shape("M1,5 L1,3 7,3 9,5 16,5 16,15 1,15 Z", Brushes.Goldenrod); Shape("M1,15 L4,8 18,8 15,15 Z", Brushes.Khaki); break;
             case "Save":
