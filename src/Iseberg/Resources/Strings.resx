@@ -5,6 +5,28 @@
   <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms</value></resheader>
   <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms</value></resheader>
   <data name="Options" xml:space="preserve"><value>Options</value></data>
+  <data name="DebuggerPanes" xml:space="preserve"><value>Debugger Panes</value></data>
+  <data name="CloseDebuggerPanes" xml:space="preserve"><value>Close debugger panes</value></data>
+  <data name="Variables" xml:space="preserve"><value>Variables</value></data>
+  <data name="Watches" xml:space="preserve"><value>Watch</value></data>
+  <data name="CallStack" xml:space="preserve"><value>Call Stack</value></data>
+  <data name="BreakpointsTitle" xml:space="preserve"><value>Breakpoints</value></data>
+  <data name="NewBreakpoint" xml:space="preserve"><value>New Breakpoint...</value></data>
+  <data name="EditBreakpoint" xml:space="preserve"><value>Edit...</value></data>
+  <data name="EnableDisableBreakpoint" xml:space="preserve"><value>Enable / Disable</value></data>
+  <data name="DeleteBreakpoint" xml:space="preserve"><value>Delete</value></data>
+  <data name="BreakAll" xml:space="preserve"><value>Break All</value></data>
+  <data name="AddWatch" xml:space="preserve"><value>Add</value></data>
+  <data name="RemoveWatch" xml:space="preserve"><value>Remove</value></data>
+  <data name="WatchExpression" xml:space="preserve"><value>PowerShell expression</value></data>
+  <data name="BreakpointKind" xml:space="preserve"><value>Kind</value></data>
+  <data name="BreakpointScript" xml:space="preserve"><value>Script path (optional for command / variable)</value></data>
+  <data name="BreakpointTarget" xml:space="preserve"><value>Command / variable name</value></data>
+  <data name="BreakpointLine" xml:space="preserve"><value>Line number</value></data>
+  <data name="BreakpointCondition" xml:space="preserve"><value>Condition (PowerShell expression; empty means always break)</value></data>
+  <data name="BreakpointAction" xml:space="preserve"><value>Action (optional; use break to pause; cannot combine with a condition)</value></data>
+  <data name="BreakpointAccess" xml:space="preserve"><value>Variable access</value></data>
+  <data name="BreakpointEnabled" xml:space="preserve"><value>Enabled</value></data>
   <data name="ColorsAndFonts" xml:space="preserve"><value>Colors and Fonts</value></data>
   <data name="GeneralSettings" xml:space="preserve"><value>General Settings</value></data>
   <data name="ScriptPane" xml:space="preserve"><value>Script Pane</value></data>

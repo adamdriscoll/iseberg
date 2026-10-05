@@ -3,11 +3,11 @@ using System.Management.Automation.Runspaces;
 
 namespace Iseberg.Core;
 
-public sealed class PowerShellSession : IAsyncDisposable
+public sealed partial class PowerShellSession : IAsyncDisposable
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly object sync = new();
-    private readonly ManualResetEventSlim debuggerResume = new();
+    private readonly AutoResetEvent debuggerWake = new(false);
     private readonly Runspace runspace;
     private PowerShell? active;
     private InputRequest? pendingInput;
@@ -162,7 +162,9 @@ public sealed class PowerShellSession : IAsyncDisposable
             pendingInput?.Response.TrySetCanceled();
             pendingShowCommand?.Response.TrySetCanceled();
             resumeAction = DebuggerResumeAction.Stop;
-            debuggerResume.Set();
+            resumeRequested = true;
+            debuggerWake.Set();
+            runspace.Debugger?.StopProcessCommand();
             if (active is { } shell)
                 return shell.StopAsync(null, null);
         }
@@ -176,23 +178,13 @@ public sealed class PowerShellSession : IAsyncDisposable
             if (State != SessionState.Debugging)
                 throw new InvalidOperationException("The debugger is not paused.");
             resumeAction = action;
-            debuggerResume.Set();
+            resumeRequested = true;
+            debuggerWake.Set();
         }
     }
 
     public Task SetBreakpointsAsync(string path, IEnumerable<int> lines) =>
-        QueryAsync(shell =>
-        {
-            shell.AddCommand("Get-PSBreakpoint").AddParameter("Script", path)
-                .AddCommand("Remove-PSBreakpoint");
-            shell.Invoke();
-            shell.Commands.Clear();
-            var lineArray = lines.ToArray();
-            if (lineArray.Length != 0)
-                shell.AddCommand("Set-PSBreakpoint").AddParameter("Script", path).AddParameter("Line", lineArray).Invoke();
-            ThrowQueryErrors(shell);
-            return true;
-        });
+        SetLineBreakpointsAsync(path, lines.Select(line => new BreakpointSpec(BreakpointKind.Line, path, Line: line)));
 
     public Task<CompletionSet> CompleteAsync(string text, int cursor, CancellationToken cancellationToken = default) =>
         QueryAsync(shell =>
@@ -350,14 +342,35 @@ public sealed class PowerShellSession : IAsyncDisposable
     {
         lock (sync)
         {
-            debuggerResume.Reset();
-            resumeAction = DebuggerResumeAction.Continue;
+            resumeRequested = stopRequested;
+            resumeAction = stopRequested ? DebuggerResumeAction.Stop : DebuggerResumeAction.Continue;
             SetState(SessionState.Debugging);
         }
         DebuggerStopped?.Invoke(new(e.InvocationInfo.ScriptName, e.InvocationInfo.ScriptLineNumber,
             e.InvocationInfo.OffsetInLine, e.InvocationInfo.PositionMessage));
-        debuggerResume.Wait();
-        lock (sync) e.ResumeAction = resumeAction;
+        try
+        {
+            while (true)
+            {
+                DebugWork? work;
+                lock (sync)
+                {
+                    if (resumeRequested) break;
+                    work = debugWork.Count > 0 ? debugWork.Dequeue() : null;
+                }
+                if (work is null) debuggerWake.WaitOne();
+                else work.Execute();
+            }
+        }
+        finally
+        {
+            lock (sync)
+            {
+                e.ResumeAction = resumeAction;
+                while (debugWork.TryDequeue(out var work))
+                    work.Fail(new InvalidOperationException("The debugger has resumed."));
+            }
+        }
         SetState(SessionState.Running);
         DebuggerStopped?.Invoke(null);
     }
@@ -414,7 +427,7 @@ public sealed class PowerShellSession : IAsyncDisposable
             disposed = true;
             if (runspace.Debugger is { } debugger) debugger.DebuggerStop -= OnDebuggerStop;
             await Task.Run(runspace.Dispose);
-            debuggerResume.Dispose();
+            debuggerWake.Dispose();
             SetState(SessionState.Disposed);
         }
         finally { gate.Release(); }

@@ -9,6 +9,7 @@ Iseberg is a cross-platform desktop workbench inspired by PowerShell ISE.
 | Avalonia application and `MainWindow` | Desktop lifecycle, layouts, menus, toolbar actions, dialogs and keyboard routing |
 | `WorkbenchModel` and `SessionModel` | Independent session presentation, file tabs, command history and output batching |
 | `PowerShellSession` | Persistent runspace, serialized execution, asynchronous stopping, prompt refresh, completion and debugger events |
+| `PowerShellSession.Debugger`, `DebuggerModels` and `BreakpointWindow` | Suspended-thread evaluation/inspection, debugger work queue, typed breakpoint descriptions/validation and live breakpoint editing |
 | `WorkbenchHost` | PowerShell input, credentials, choices, output streams, console clearing and progress |
 | `ScriptFile` and `ScriptTab` | File metadata and persistence, dirty state, per-file text documents, undo histories and breakpoint anchors |
 | `EditorAnalysis` and editor rendering | Parser-based syntax coloring, diagnostics, folding, completion context and matching-brace navigation |
@@ -22,6 +23,10 @@ Iseberg is a cross-platform desktop workbench inspired by PowerShell ISE.
 ## Design decisions
 
 The engine is a deep module: callers supply code and consume output/state/input/debug events. Runspace ownership, pipeline serialization, host protocol and stopping are localized there; the desktop never launches a new shell for each command. No speculative host abstraction is introduced.
+
+The execution gate stays occupied while debugging. A separate work queue is drained on the `DebuggerStop` pipeline thread, where PowerShell's `Debugger.ProcessCommand` can evaluate commands and inspect suspended local scope. Resume/stop wakes that thread and rejects queued work that no longer has a suspended scope; stop also cancels an active debugger command or graphical input request. Break-all uses debugger step mode to suspend at the next statement. Breakpoint operations use the normal gate while idle and the debugger queue while paused. Line synchronization preserves unchanged engine breakpoints and other breakpoint kinds. Editor anchors retain each breakpoint's condition and enabled state across text edits.
+
+`MainWindow.Debugger` owns debugger pane presentation and asynchronous inspection. Session-local snapshots/watches are refreshed on pause and evaluation; resume clears variable/stack values instead of displaying stale data. Revision checks prevent late inspector results from updating a later stop or another session. The breakpoint editor validates specifications before replacing an engine breakpoint, and engine breakpoint lists can reconcile editor markers after debugger-console changes.
 
 Script files retain their own text documents and undo histories. File persistence preserves recognized Unicode BOMs and line endings, marks a file saved only after a successful write, and replaces files through a temporary file in the destination directory.
 

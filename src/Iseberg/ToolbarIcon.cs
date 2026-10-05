@@ -43,6 +43,7 @@ public sealed class ToolbarIcon : Control
             case "Run": case "Continue": Shape("M5,2 L15,9 5,16 Z", Brushes.ForestGreen); break;
             case "Selection": case "RunSelection": Shape("M1,2 L10,2 10,5 1,5 Z M1,7 L7,7 7,10 1,10 Z M1,12 L7,12 7,15 1,15 Z", Brushes.SteelBlue); Shape("M9,7 L17,12 9,17 Z", Brushes.ForestGreen); break;
             case "Stop": Shape("M3,3 L15,3 15,15 3,15 Z", Brushes.DarkRed); break;
+            case "BreakAll": Shape("M4,3 L7,3 7,15 4,15 Z M11,3 L14,3 14,15 11,15 Z", Brushes.Goldenrod); break;
             case "Copy": Shape("M2,1 L11,1 11,13 2,13 Z", Brushes.White); Shape("M6,5 L15,5 15,17 6,17 Z", Brushes.White); break;
             case "Paste": Shape("M3,3 L15,3 15,17 3,17 Z", Brushes.Goldenrod); Shape("M6,1 L12,1 12,5 6,5 Z", Brushes.LightGray); Shape("M7,7 L17,7 17,18 7,18 Z", Brushes.White); break;
             case "Cut": context.DrawLine(new Pen(ink, 2), new(4, 14), new(14, 2)); context.DrawLine(new Pen(ink, 2), new(14, 14), new(4, 2)); context.DrawEllipse(null, new Pen(ink, 1.5), new Point(3, 14), 2.5, 2.5); context.DrawEllipse(null, new Pen(ink, 1.5), new Point(15, 14), 2.5, 2.5); break;
@@ -64,9 +65,16 @@ public sealed class ToolbarIcon : Control
                 context.DrawEllipse(null, new Pen(ink, 2), new(7, 7), 5, 5);
                 context.DrawLine(new Pen(ink, 2), new(11, 11), new(17, 17));
                 if (Kind == "Replace") Shape("M1,15 L8,15 6,12 M8,15 L6,18", Brushes.Transparent); break;
-            case "Breakpoint": case "RemoveBreakpoints":
+            case "Breakpoint": case "RemoveBreakpoints": case "NewBreakpoint":
                 context.DrawEllipse(DesktopTheme.HighContrast ? DesktopTheme.Brush("ControlTextBrush") : Brushes.DarkRed, null, new(9, 9), 6, 6);
-                if (Kind == "RemoveBreakpoints") context.DrawLine(new Pen(DesktopTheme.Brush("WindowBrush"), 2), new(4, 14), new(14, 4)); break;
+                if (Kind == "RemoveBreakpoints") context.DrawLine(new Pen(DesktopTheme.Brush("WindowBrush"), 2), new(4, 14), new(14, 4));
+                if (Kind == "NewBreakpoint")
+                {
+                    var plus = new Pen(DesktopTheme.Brush("WindowBrush"), 2);
+                    context.DrawLine(plus, new(5, 9), new(13, 9));
+                    context.DrawLine(plus, new(9, 5), new(9, 13));
+                }
+                break;
             case "StepInto": case "StepOver": case "StepOut":
                 Shape(Kind == "StepOut" ? "M9,14 L9,3 M5,7 L9,3 13,7" : "M9,2 L9,12 M5,8 L9,12 13,8", Brushes.Transparent);
                 Shape("M2,15 L16,15 16,17 2,17 Z", Brushes.SteelBlue);
@@ -108,7 +116,7 @@ public sealed class ToolbarIcon : Control
                 Shape("M3,3 L15,3 15,15 3,15 Z M6,9 L12,9", Brushes.White); break;
             case "LineNumbers": case "WordWrap":
                 Shape("M1,3 L3,3 M1,8 L3,8 M1,13 L3,13 M6,3 L17,3 M6,8 L17,8 M6,13 L13,13", Brushes.Transparent); break;
-            case "Top": case "Right": case "Maximized": case "Commands": case "ShowCommand": case "FocusScript": case "FocusConsole":
+            case "Top": case "Right": case "Maximized": case "Commands": case "ShowCommand": case "FocusScript": case "FocusConsole": case "DebuggerPanes":
                 Shape("M1,2 L17,2 17,16 1,16 Z", Brushes.White);
                 Shape("M1,2 L17,2 17,5 1,5 Z", Brushes.SteelBlue);
                 if (Kind == "Top") Shape("M2,11 L16,11 16,15 2,15 Z", Brushes.MidnightBlue);
@@ -117,6 +125,7 @@ public sealed class ToolbarIcon : Control
                 if (Kind == "ShowCommand") Shape("M3,7 L6,7 6,10 3,10 Z M8,7 L15,7 M3,12 L6,12 6,15 3,15 Z M8,12 L15,12", Brushes.Transparent);
                 if (Kind == "FocusScript") Shape("M3,7 L15,7 M3,10 L15,10 M3,13 L10,13", Brushes.Transparent);
                 if (Kind == "FocusConsole") Shape("M3,7 L6,10 3,13 M8,13 L13,13", Brushes.Transparent);
+                if (Kind == "DebuggerPanes") Shape("M2,11 L16,11 M7,11 L7,15 M12,11 L12,15", Brushes.Transparent);
                 break;
             default: throw new InvalidOperationException($"Unknown toolbar icon: {Kind}");
         }

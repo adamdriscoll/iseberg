@@ -6,6 +6,7 @@ using SessionState = Iseberg.Core.SessionState;
 
 namespace Iseberg.Tests;
 
+[Collection(PowerShellPolicyCollection.Name)]
 public sealed class PowerShellSessionTests
 {
     [Fact]
