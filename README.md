@@ -67,9 +67,31 @@ Workflow and classic DSC entries are explicitly labeled as Windows PowerShell 5.
 
 Profiles are opt-in under **Tools > Load profiles in new PowerShell tabs**. `$PROFILE` points to `Iseberg_profile.ps1` in the usual user PowerShell configuration directory, alongside the shared `profile.ps1`. Loading profiles executes all four profile locations in normal PowerShell order. Startup never silently changes execution policy or executes user profiles.
 
-Scripts execute with your account's permissions. This is **not a sandbox**. The console is a graphical PowerShell host, not a terminal emulator; full-screen interactive native programs and raw keyboard/buffer operations are not supported.
+Scripts execute with your account's permissions. This is **not a sandbox**. The console is a graphical PowerShell host with a protected transcript, not a terminal emulator. Interactive native applications run in a separate system terminal as described below.
 
 `Clear-Host` and its `clear`/`cls` aliases clear the graphical console on every supported platform without invoking a native terminal program or resetting the PowerShell session.
+
+### Host prompts, colors, and native terminals
+
+`Read-Host`, secure input, credentials, and field prompts use graphical dialogs. Single-choice prompts use radio buttons; multiple-choice prompts use checkboxes with the supplied defaults and help text. Submit returns the selected indices, including an explicitly empty multiple selection. Cancel, Escape, or closing an input dialog stops the requesting pipeline. Stop also cancels outstanding input and closes its dialog; secure values are not written to the transcript.
+
+Local scripts can call `$Host.EnterNestedPrompt()`. The console changes to `[Nested 1]: PS> ` and accepts commands and completion in the suspended scope, including function-local variables. Further nested prompts increase the depth. Enter `exit` or call `$Host.ExitNestedPrompt()` to return one level; Stop cancels the whole execution rather than resuming the suspended script. The normal execution gate remains occupied, so another script cannot run concurrently. Nested host prompts inside debugger evaluation are rejected explicitly: the debugger already provides its own suspended-scope console. Remote nested prompts are unsupported; use remote breakpoints and the debugger console instead.
+
+`Write-Host -ForegroundColor/-BackgroundColor`, colored `$Host.UI.Write(...)`, and changes to `$Host.UI.RawUI.ForegroundColor/BackgroundColor` affect subsequent output without recoloring earlier transcript text. ANSI SGR sequences support normal/bright 16-color palettes, 256-color palettes, RGB foreground/background, bold, underline, reverse video, and their resets. Styling can span output writes; copied text contains no styling escapes. Theme colors provide defaults, and high contrast overrides custom output styling. `Clear-Host` resets ANSI parser state. An incomplete escape at the end of output is discarded with a warning.
+
+The transcript does **not** implement cursor movement, erasure, screen switching, OSC title/hyperlink commands, raw key events, or character-cell reads/writes/scrolling. Unsupported ANSI controls are discarded with one warning per cleared transcript, never applied to earlier commands or current input. Backspace and carriage-return output cannot overwrite earlier text. Raw cursor/window positioning, resizing, cursor-size changes, `ReadKey`, `FlushInputBuffer`, and character-buffer operations raise explicit unsupported-host errors. `KeyAvailable` is always false; buffer/window sizes are fixed formatting hints, not a real screen. `WindowTitle` is stored host metadata only. The whole-buffer clear sentinel remains supported for `Clear-Host`.
+
+For an interactive native application, explicitly opt into a separate terminal:
+
+```powershell
+Start-IsebergTerminal my-native-app -ArgumentList @('argument with spaces') -WorkingDirectory $PWD
+```
+
+The application must be an installed native executable discoverable by PowerShell, or an executable path. Windows opens a new native console; Linux requires **xterm and a graphical display**; macOS uses **Terminal.app**. Missing applications, launch failures, terminal closure without an exit status, and unsupported environments are reported as errors. Arguments are passed as literal values, not interpolated shell code. Iseberg waits for completion, returns the integer exit code, and sets `$LASTEXITCODE`. Stop terminates the launched application's process tree, not unrelated terminals.
+
+Terminal input/output stays in that terminal, not in the protected transcript or PowerShell's object pipeline. The native process inherits the environment and selected filesystem directory but cannot share in-memory runspace variables or functions. Launching another PowerShell this way requires an installed `pwsh`; the embedded SDK alone is not a `pwsh` executable. Ordinary noninteractive native commands can still stream text through the graphical console; direct native execution warns that interactive input is unavailable and must use the terminal command. Terminal launch is local-only. Windows terminal input/output and stopping have been exercised locally; native Linux/macOS terminal interaction still requires platform-specific verification.
+
+The hosted `Show-Command -ErrorPopup` option displays execution errors in a read-only graphical popup instead of the normal error stream. Successful results remain structured PowerShell objects evaluated in the originating scope. Closing the popup dismisses it; Stop cancels it and the active execution. `-PassThru` returns the generated command without executing it, so no execution-error popup is shown.
 
 ### Remoting
 

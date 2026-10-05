@@ -14,6 +14,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     private PowerShell? active;
     private InputRequest? pendingInput;
     private ShowCommandRequest? pendingShowCommand;
+    private CommandErrorRequest? pendingCommandError;
     private DebuggerResumeAction resumeAction;
     private bool disposed;
     private bool stopRequested;
@@ -22,6 +23,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     public event Action<SessionState>? StateChanged;
     public event Action<InputRequest>? InputRequested;
     public event Action<ShowCommandRequest>? ShowCommandRequested;
+    public event Action<CommandErrorRequest>? CommandErrorRequested;
     public event Action<ProgressUpdate>? ProgressChanged;
     public event Action<DebugLocation?>? DebuggerStopped;
     public event Action? ConsoleCleared;
@@ -33,7 +35,8 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     {
         host = new WorkbenchHost(entry => Output?.Invoke(entry), ReadInput,
             update => ProgressChanged?.Invoke(update), () => ConsoleCleared?.Invoke(), ReadShowCommand,
-            () => runspace, () => IsRunspacePushed, remote => PushRunspace(remote, false), PopRunspace);
+            () => runspace, () => IsRunspacePushed, remote => PushRunspace(remote, false), PopRunspace,
+            EnterNestedPrompt, ExitNestedPrompt, ReadCommandError);
         var initialState = InitialSessionState.CreateDefault2();
         // The default Unix function clears a terminal instead of this graphical host.
         initialState.Commands.Remove("Clear-Host", typeof(SessionStateFunctionEntry));
@@ -46,7 +49,6 @@ public sealed partial class PowerShellSession : IAsyncDisposable
                     $rawUI.ForegroundColor,
                     $rawUI.BackgroundColor,
                     [System.Management.Automation.Host.BufferCellType]::Complete))
-            $rawUI.CursorPosition = [System.Management.Automation.Host.Coordinates]::new(0, 0)
             """));
         initialState.Commands.Remove("clear", typeof(SessionStateAliasEntry));
         initialState.Commands.Add(new SessionStateAliasEntry("clear", "Clear-Host"));
@@ -54,6 +56,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         initialState.Commands.Add(new SessionStateCmdletEntry("Set-ExecutionPolicy", typeof(Microsoft.PowerShell.Commands.SetExecutionPolicyCommand), null));
         initialState.Commands.Add(new SessionStateCmdletEntry("Get-ExecutionPolicy", typeof(Microsoft.PowerShell.Commands.GetExecutionPolicyCommand), null));
         initialState.Commands.Add(new SessionStateCmdletEntry("Show-IsebergCommand", typeof(ShowCommandCommand), null));
+        initialState.Commands.Add(new SessionStateCmdletEntry("Start-IsebergTerminal", typeof(StartTerminalCommand), null));
         // A function keeps precedence when Utility is auto-imported by commands such as Get-Help.
         initialState.Commands.Remove("Show-Command", typeof(SessionStateFunctionEntry));
         initialState.Commands.Add(new SessionStateFunctionEntry("Show-Command", """
@@ -62,6 +65,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
                 [Parameter(Position=0)] [ValidateNotNullOrEmpty()] [string] $Name,
                 [switch] $PassThru,
                 [switch] $NoCommonParameter,
+                [switch] $ErrorPopup,
                 [ValidateRange(300, [int]::MaxValue)] [int] $Width = 360,
                 [ValidateRange(300, [int]::MaxValue)] [int] $Height = 410
             )
@@ -171,6 +175,8 @@ public sealed partial class PowerShellSession : IAsyncDisposable
             stopRequested = true;
             pendingInput?.Response.TrySetCanceled();
             pendingShowCommand?.Response.TrySetCanceled();
+            pendingCommandError?.Response.TrySetCanceled();
+            foreach (var frame in nestedFrames) frame.Exit = true;
             resumeAction = DebuggerResumeAction.Stop;
             resumeRequested = true;
             debuggerWake.Set();
@@ -199,7 +205,11 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         SetLineBreakpointsAsync(path, lines.Select(line => new BreakpointSpec(BreakpointKind.Line, path, Line: line)));
 
     public Task<CompletionSet> CompleteAsync(string text, int cursor, CancellationToken cancellationToken = default) =>
-        State == SessionState.Debugging ? CompletePausedAsync(text, cursor, cancellationToken) : QueryAsync(shell =>
+        State == SessionState.NestedPrompt ? NestedQueryAsync(shell =>
+        {
+            var result = CommandCompletion.CompleteInput(text, cursor, null, shell);
+            return new CompletionSet(result.ReplacementIndex, result.ReplacementLength, result.CompletionMatches.ToArray());
+        }, cancellationToken) : State == SessionState.Debugging ? CompletePausedAsync(text, cursor, cancellationToken) : QueryAsync(shell =>
         {
             var result = CommandCompletion.CompleteInput(text, cursor, null, shell);
             return new CompletionSet(result.ReplacementIndex, result.ReplacementLength, result.CompletionMatches.ToArray());
@@ -332,7 +342,11 @@ public sealed partial class PowerShellSession : IAsyncDisposable
 
     private string ReadInput(InputRequest request)
     {
-        lock (sync) pendingInput = request;
+        lock (sync)
+        {
+            if (stopRequested) throw new PipelineStoppedException();
+            pendingInput = request;
+        }
         try
         {
             if (InputRequested is null)
@@ -364,12 +378,14 @@ public sealed partial class PowerShellSession : IAsyncDisposable
 
     private void OnDebuggerStop(object? sender, DebuggerStopEventArgs e)
     {
+        var previousState = State;
         lock (sync)
         {
             resumeRequested = stopRequested;
             resumeAction = stopRequested ? DebuggerResumeAction.Stop : DebuggerResumeAction.Continue;
             SetState(SessionState.Debugging);
         }
+
         var invocation = e.InvocationInfo;
         DebuggerStopped?.Invoke(new(invocation?.ScriptName, invocation?.ScriptLineNumber ?? 0,
             invocation?.OffsetInLine ?? 0, invocation?.PositionMessage ?? "Execution paused without a script location."));
@@ -397,8 +413,27 @@ public sealed partial class PowerShellSession : IAsyncDisposable
                     work.Fail(new InvalidOperationException("The debugger has resumed."));
             }
         }
-        SetState(SessionState.Running);
+        SetState(previousState);
         DebuggerStopped?.Invoke(null);
+    }
+
+    private void ReadCommandError(string message)
+    {
+        var request = new CommandErrorRequest(message);
+        lock (sync)
+        {
+            if (stopRequested) throw new PipelineStoppedException();
+            pendingCommandError = request;
+        }
+        try
+        {
+            if (CommandErrorRequested is null)
+                throw new PSNotSupportedException("No command error popup handler is attached to this host." + Environment.NewLine + message);
+            CommandErrorRequested.Invoke(request);
+            request.Response.Task.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException) { throw new PipelineStoppedException(); }
+        finally { lock (sync) pendingCommandError = null; }
     }
 
     private void RefreshPrompt()
