@@ -2,25 +2,39 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Management.Automation;
 using System.Management.Automation.Host;
+using System.Management.Automation.Runspaces;
 using System.Security;
 
 namespace Iseberg.Core;
 
 internal sealed record WorkbenchHostServices(Func<ShowCommandRequest, string?> ShowCommand);
 
-internal sealed class WorkbenchHost : PSHost
+internal sealed class WorkbenchHost : PSHost, IHostSupportsInteractiveSession
 {
     private readonly Guid id = Guid.NewGuid();
     private readonly WorkbenchHostUi ui;
     private readonly PSObject privateData;
+    private readonly Func<Runspace> currentRunspace;
+    private readonly Func<bool> isPushed;
+    private readonly Action<Runspace> push;
+    private readonly Action pop;
 
     public WorkbenchHost(Action<OutputEntry> write, Func<InputRequest, string> read,
-        Action<ProgressUpdate> progress, Action clear, Func<ShowCommandRequest, string?> showCommand)
+        Action<ProgressUpdate> progress, Action clear, Func<ShowCommandRequest, string?> showCommand,
+        Func<Runspace> currentRunspace, Func<bool> isPushed, Action<Runspace> push, Action pop)
     {
         ui = new(write, read, progress, clear);
         privateData = PSObject.AsPSObject(new WorkbenchHostServices(showCommand));
+        this.currentRunspace = currentRunspace;
+        this.isPushed = isPushed;
+        this.push = push;
+        this.pop = pop;
     }
 
+    public bool IsRunspacePushed => isPushed();
+    public Runspace Runspace => currentRunspace();
+    public void PushRunspace(Runspace runspace) => push(runspace);
+    public void PopRunspace() => pop();
     public override PSObject PrivateData => privateData;
 
     public override Guid InstanceId => id;
@@ -29,8 +43,11 @@ internal sealed class WorkbenchHost : PSHost
     public override PSHostUserInterface UI => ui;
     public override CultureInfo CurrentCulture => CultureInfo.CurrentCulture;
     public override CultureInfo CurrentUICulture => CultureInfo.CurrentUICulture;
-    public override void SetShouldExit(int exitCode) =>
-        ui.WriteWarningLine($"The script requested exit ({exitCode}). The editor session remains open.");
+    public override void SetShouldExit(int exitCode)
+    {
+        if (IsRunspacePushed) PopRunspace();
+        else ui.WriteWarningLine($"The script requested exit ({exitCode}). The editor session remains open.");
+    }
     public override void EnterNestedPrompt() => throw new PSNotSupportedException("Nested prompts are not supported. Use script breakpoints.");
     public override void ExitNestedPrompt() => throw new PSNotSupportedException("No nested prompt is active.");
     public override void NotifyBeginApplication() { }

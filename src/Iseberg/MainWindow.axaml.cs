@@ -49,6 +49,8 @@ public sealed partial class MainWindow : Window
     private bool closingInProgress;
     private int commandRequestVersion;
     private CancellationTokenSource? commandFormCancellation;
+    private readonly CancellationTokenSource windowCancellation = new();
+    private bool windowClosed;
     private bool updatingCommandList;
     private readonly Dictionary<SessionModel, Action<ShowCommandRequest>> showCommandHandlers = [];
     private bool completionPending;
@@ -95,8 +97,8 @@ public sealed partial class MainWindow : Window
         ScriptEditor.Options.HighlightCurrentLine = true;
         ScriptEditor.TextArea.TextView.LineTransformers.Add(colorizer);
         ScriptEditor.TextArea.TextView.BackgroundRenderers.Add(new ScriptAdornments(
-            () => displayedFile, () => displayedSession?.DebugLocation, () => settings.Theme));
-        breakpointMargin = new(() => displayedFile, () => displayedSession?.DebugLocation, () => settings.Theme)
+            () => displayedFile, () => CurrentFileDebugLocation(), () => settings.Theme));
+        breakpointMargin = new(() => displayedFile, () => CurrentFileDebugLocation(), () => settings.Theme)
         {
             Name = "BreakpointGutter",
             Cursor = new Cursor(StandardCursorType.Hand),
@@ -167,10 +169,15 @@ public sealed partial class MainWindow : Window
         }
         Closed += (_, _) =>
         {
+            windowClosed = true;
+            ++commandRequestVersion;
+            windowCancellation.Cancel();
             outputTimer.Stop(); analysisTimer.Stop(); autoSaveTimer.Stop(); completionTimer.Stop();
             completion?.Close();
             commandFormCancellation?.Cancel();
             commandFormCancellation?.Dispose();
+            commandFormCancellation = null;
+            windowCancellation.Dispose();
             foreach (var (session, handler) in showCommandHandlers)
                 session.Engine.ShowCommandRequested -= handler;
             showCommandHandlers.Clear();
@@ -199,7 +206,11 @@ public sealed partial class MainWindow : Window
         ScriptEditor.TextArea.Focus();
     }
 
-    private async Task NewSessionAsync()
+    private DebugLocation? CurrentFileDebugLocation() =>
+        displayedSession is { } session && displayedFile is { } file && FileInCurrentRunspace(session, file)
+            ? session.DebugLocation : null;
+
+    private async Task NewSessionAsync(System.Management.Automation.Runspaces.RunspaceConnectionInfo? connection = null)
     {
         var session = new SessionModel($"PowerShell {++sessionNumber}");
         session.Engine.InputRequested += request => Dispatcher.UIThread.Post(async () =>
@@ -238,7 +249,8 @@ public sealed partial class MainWindow : Window
             session.Console.Append(new($"PowerShell {session.Engine.Version}\nCopyright (c) Microsoft Corporation.\n\n", OutputKind.Output));
             if (settings.LoadProfiles) await LoadProfilesAsync(session);
             await RestoreDebuggerSettingsAsync(session);
-            await RefreshCommandsAsync(session);
+            if (connection is not null) await session.Engine.ConnectAsync(connection);
+            if (connection is null) await RefreshCommandsAsync(session);
         }
         catch (Exception exception) when (exception is RuntimeException or InvalidOperationException or IOException)
         {
@@ -404,6 +416,9 @@ public sealed partial class MainWindow : Window
                 break;
             case "Close": if (session is not null && displayedFile is not null) await CloseFileAsync(session, displayedFile); break;
             case "NewSession": await NewSessionAsync(); break;
+            case "NewRemoteSession": await NewRemoteSessionAsync(); break;
+            case "OpenRemoteFile": await PickRemoteFileAsync(); break;
+            case "ExitRemoteSession": if (session is not null) await session.Engine.ExitRemoteSessionAsync(); break;
             case "CloseSession": if (session is not null) await CloseSessionAsync(session); break;
             case "Exit": Close(); break;
             case "Undo": if (editTarget is TextBox undoBox) undoBox.Undo(); else (editTarget as TextEditor ?? ScriptEditor).Undo(); break;
@@ -563,16 +578,16 @@ public sealed partial class MainWindow : Window
         if (Workbench.SelectedSession is not { } session) return;
         var fullPath = Path.GetFullPath(path);
         if (settings.WarnDuplicateFiles && Workbench.Sessions.Where(s => s != session).SelectMany(s => s.Files)
-                .Any(t => string.Equals(t.File.Path, fullPath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) &&
+                .Any(t => !t.File.IsRemote && string.Equals(t.File.Path, fullPath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) &&
             await Dialogs.ChooseAsync(this, "Duplicate file", "This script is already open in another PowerShell tab. Open another editable copy?", "Open", "Cancel") != "Open")
             return;
-        var existing = session.Files.FirstOrDefault(tab => string.Equals(tab.File.Path, fullPath,
+        var existing = session.Files.FirstOrDefault(tab => !tab.File.IsRemote && string.Equals(tab.File.Path, fullPath,
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
         var tab = existing ?? new ScriptTab(await ScriptFile.OpenAsync(fullPath));
         if (existing is null)
         {
             tab.ReplaceBreakpoints(session.Breakpoints.Where(breakpoint => breakpoint.Spec.Kind == BreakpointKind.Line &&
-                SameScript(breakpoint.Spec.ScriptPath, fullPath)).Select(breakpoint => breakpoint.Spec));
+                !session.Engine.IsRemote && SameScript(breakpoint.Spec.ScriptPath, fullPath)).Select(breakpoint => breakpoint.Spec));
             session.Files.Add(tab);
         }
         session.SelectedFile = tab;
@@ -582,6 +597,28 @@ public sealed partial class MainWindow : Window
 
     private async Task<bool> SaveFileAsync(ScriptTab tab, bool saveAs = false)
     {
+        var owner = Workbench.Sessions.First(s => s.Files.Contains(tab));
+        if (tab.File.IsRemote || tab.File.Path is null && owner.Engine.IsRemote)
+        {
+            var previousRemotePath = tab.File.Path;
+            var remotePath = tab.File.Path;
+            if (remotePath is null || saveAs)
+                remotePath = await Dialogs.AskAsync(this, UiText.Get("SaveRemoteFile"), UiText.Get("RemoteFilePath"), remotePath ?? "");
+            if (remotePath is null) return false;
+            if (!string.Equals(remotePath, tab.File.Path, StringComparison.Ordinal) && await owner.Engine.RemoteFileExistsAsync(remotePath) &&
+                await Dialogs.ChooseAsync(this, UiText.Get("SaveRemoteFile"), UiText.Get("RemoteOverwrite"), UiText.Get("Save"), UiText.Get("Cancel")) != UiText.Get("Save"))
+                return false;
+            await owner.Engine.SaveRemoteFileAsync(tab.File, remotePath);
+            await autoSaveTask;
+            recovery.Remove(tab.RecoveryId);
+            if (previousRemotePath is not null && !string.Equals(previousRemotePath, tab.File.Path, StringComparison.Ordinal))
+                await owner.Engine.SetBreakpointsAsync(previousRemotePath, []);
+            await owner.Engine.SetLineBreakpointsAsync(tab.File.Path!, tab.LineBreakpoints);
+            tab.AcknowledgeBreakpointLines();
+            await RefreshDebuggerAsync(owner, reconcile: true);
+            RefreshCaret();
+            return true;
+        }
         var path = tab.File.Path;
         if (path is null || saveAs)
         {
@@ -600,8 +637,7 @@ public sealed partial class MainWindow : Window
         await tab.File.SaveAsync(path);
         await autoSaveTask;
         recovery.Remove(tab.RecoveryId);
-        var owner = Workbench.Sessions.First(s => s.Files.Contains(tab));
-        if (owner.Engine.State == SessionState.Ready || owner.Engine.IsDebuggerPaused)
+        if (FileInCurrentRunspace(owner, tab) && (owner.Engine.State == SessionState.Ready || owner.Engine.IsDebuggerPaused))
         {
             if (previousPath is not null && !SameScript(previousPath, tab.File.Path))
                 await owner.Engine.SetBreakpointsAsync(previousPath, []);
@@ -648,7 +684,7 @@ public sealed partial class MainWindow : Window
         if (!await ConfirmSaveAsync(tab)) return;
         await autoSaveTask;
         recovery.Remove(tab.RecoveryId);
-        if (tab.File.Path is not null) await session.Engine.SetBreakpointsAsync(tab.File.Path, []);
+        if (tab.File.Path is not null && FileInCurrentRunspace(session, tab)) await session.Engine.SetBreakpointsAsync(tab.File.Path, []);
         session.Files.Remove(tab);
         await RefreshDebuggerAsync(session, reconcile: true);
         if (session.SelectedFile == tab) session.SelectedFile = session.Files.LastOrDefault();
@@ -707,6 +743,10 @@ public sealed partial class MainWindow : Window
         }
         else
         {
+            if (file.File.IsRemote && !FileInCurrentRunspace(session, file))
+                throw new InvalidOperationException("Reopen this script in its remote connection before running it.");
+            if (session.Engine.IsRemote && file.File.Path is not null && !file.File.IsRemote)
+                throw new InvalidOperationException("Open or save the script on the remote machine before running a named script. F8 can run local text remotely.");
             if (settings.PromptToSaveBeforeRun && file.File.IsDirty)
             {
                 var answer = await Dialogs.ChooseAsync(this, "Save before running", $"Save {file.File.Name} before running?", "Save", "Run without saving", "Cancel");
@@ -723,7 +763,7 @@ public sealed partial class MainWindow : Window
             if (file.File.Path is not null || file.File.Breakpoints.Count > 0)
             {
                 if ((file.File.IsDirty || file.File.Path is null) && !await SaveFileAsync(file)) return;
-                foreach (var tab in session.Files.Where(tab => tab.File.Path is not null))
+                foreach (var tab in session.Files.Where(tab => tab.File.Path is not null && FileInCurrentRunspace(session, tab)))
                 {
                     await session.Engine.SetLineBreakpointsAsync(tab.File.Path!, tab.LineBreakpoints);
                     tab.AcknowledgeBreakpointLines();
@@ -944,6 +984,8 @@ public sealed partial class MainWindow : Window
                     displayedSession?.Evaluating != true && displayedSession?.EditingBreakpoints != true,
                 "Complete" => (ready || paused) && displayedSession?.Evaluating != true,
                 "Profiles" or "ShowCommand" => ready,
+                "OpenRemoteFile" => (ready || paused) && displayedSession?.Engine.IsRemote == true,
+                "ExitRemoteSession" => ready && displayedSession?.Engine.IsRunspacePushed == true,
                 "ExecutionPolicy" => ready && OperatingSystem.IsWindows(),
                 "Snippets" or "CreateSnippet" => displayedFile is not null && !paused,
                 "Fold" => settings.ShowOutlining,
@@ -1183,8 +1225,14 @@ public sealed partial class MainWindow : Window
 
     private async Task RefreshCommandsAsync(SessionModel session)
     {
+        if (windowClosed || !Workbench.Sessions.Contains(session)) return;
         var version = ++commandRequestVersion;
-        var commands = await session.Engine.GetCommandsAsync();
+        var runspaceId = session.Engine.RunspaceId;
+        IReadOnlyList<CommandDescription> commands;
+        try { commands = await session.Engine.GetCommandsAsync(windowCancellation.Token); }
+        catch (OperationCanceledException) when (windowCancellation.IsCancellationRequested) { return; }
+        if (windowClosed || !Workbench.Sessions.Contains(session) || session.Engine.State == SessionState.Disposed ||
+            runspaceId != session.Engine.RunspaceId) return;
         session.Commands = commands;
         session.CommandForms.Clear();
         if (session == displayedSession && version == commandRequestVersion) SetCommandModules();
@@ -1192,6 +1240,7 @@ public sealed partial class MainWindow : Window
 
     private void SetCommandModules()
     {
+        if (windowClosed) return;
         updatingCommandList = true;
         ModuleFilter.ItemsSource = new[] { "All" }.Concat((displayedSession?.Commands ?? [])
             .Select(c => c.Module).Where(m => m.Length > 0).Distinct().Order());
@@ -1223,14 +1272,17 @@ public sealed partial class MainWindow : Window
     }
     private async void SelectCommand()
     {
+        if (windowClosed) return;
         await GuardAsync(LoadCommandFormAsync);
     }
     private async Task LoadCommandFormAsync()
     {
+        if (windowClosed) return;
         commandFormCancellation?.Cancel();
         commandFormCancellation?.Dispose();
-        var cancellation = commandFormCancellation = new();
+        var cancellation = commandFormCancellation = CancellationTokenSource.CreateLinkedTokenSource(windowCancellation.Token);
         var session = displayedSession;
+        var runspaceId = session?.Engine.RunspaceId;
         var command = CommandList.SelectedItem as CommandDescription;
         if (session is not null) session.SelectedCommand = command?.Name;
         CommandForm.ShowMessage(UiText.Get(command is null ? "SelectCommand" : "LoadingCommand"));
@@ -1241,6 +1293,7 @@ public sealed partial class MainWindow : Window
             {
                 var description = await session.Engine.GetCommandFormAsync(command.Name, command.Module, cancellation.Token);
                 form = new(description);
+                if (windowClosed || cancellation.IsCancellationRequested || session.Engine.RunspaceId != runspaceId) return;
                 session.CommandForms[command.Name] = form;
             }
             if (!cancellation.IsCancellationRequested && displayedSession == session && ReferenceEquals(CommandList.SelectedItem, command))
@@ -1627,7 +1680,7 @@ public sealed partial class MainWindow : Window
     private async Task GuardAsync(Func<Task> action)
     {
         try { await action(); }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException or RuntimeException or JsonException or NotSupportedException or System.Text.DecoderFallbackException or System.Xml.XmlException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException or ArgumentException or RuntimeException or JsonException or NotSupportedException or System.Text.DecoderFallbackException or System.Xml.XmlException)
         {
             await ReportErrorAsync("Operation failed", exception);
         }
@@ -1636,6 +1689,7 @@ public sealed partial class MainWindow : Window
     private async Task ReportErrorAsync(string title, Exception exception)
     {
         System.Diagnostics.Trace.TraceError("{0}: {1}", title, exception);
+        if (windowClosed) return;
         StatusText.Text = title + ": " + exception.Message;
         await Dialogs.ChooseAsync(this, title, exception.Message, "OK");
     }

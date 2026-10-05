@@ -10,18 +10,24 @@ namespace Iseberg;
 
 public sealed partial class MainWindow
 {
-    private readonly Dictionary<SessionModel, (Action<SessionState> State, Action<DebugLocation?> Stop)> debuggerHandlers = [];
+    private readonly Dictionary<SessionModel, (Action<SessionState> State, Action<DebugLocation?> Stop, Action Runspace)> debuggerHandlers = [];
     private readonly SemaphoreSlim debuggerSettingsGate = new(1, 1);
     private bool renderingDebugger;
 
     private void AttachDebugger(SessionModel session)
     {
-        Action<SessionState> stateChanged = _ => Dispatcher.UIThread.Post(RefreshState);
+        Action<SessionState> stateChanged = _ => Dispatcher.UIThread.Post(async () =>
+        {
+            if (windowClosed || !Workbench.Sessions.Contains(session)) return;
+            RefreshState();
+            await RefreshChangedRunspaceAsync(session);
+        });
         Action<DebugLocation?> stopped = location =>
         {
             var revision = Interlocked.Increment(ref session.DebugRevisionCounter);
             Dispatcher.UIThread.Post(async () =>
             {
+                if (windowClosed || !Workbench.Sessions.Contains(session)) return;
                 if (revision != session.DebugRevisionCounter) return;
                 session.DebugLocation = location;
                 session.DebugSnapshot = null;
@@ -35,15 +41,16 @@ public sealed partial class MainWindow
                     DisplaySession();
                     await GuardAsync(async () =>
                     {
-                        if (!string.IsNullOrEmpty(location.ScriptPath) && File.Exists(location.ScriptPath))
-                            await OpenFileAsync(location.ScriptPath);
+                        await RefreshDebuggerAsync(session, reconcile: true);
+                        if (revision != session.DebugRevisionCounter || !session.Engine.IsDebuggerPaused) return;
+                        if (!string.IsNullOrEmpty(location.ScriptPath))
+                            await OpenDebuggerSourceAsync(session, location.ScriptPath);
                         if (session == displayedSession && displayedFile is not null && location.Line > 0 &&
                             location.Line <= ScriptEditor.Document.LineCount)
                         {
                             ScriptEditor.ScrollToLine(location.Line);
                             ScriptEditor.TextArea.Caret.Line = location.Line;
                         }
-                        await RefreshDebuggerAsync(session, reconcile: true);
                     });
                 }
                 RenderDebugger();
@@ -51,7 +58,9 @@ public sealed partial class MainWindow
                 RefreshState();
             });
         };
-        debuggerHandlers.Add(session, (stateChanged, stopped));
+        Action changed = () => OnRunspaceChanged(session);
+        debuggerHandlers.Add(session, (stateChanged, stopped, changed));
+        session.Engine.RunspaceChanged += changed;
         session.Engine.StateChanged += stateChanged;
         session.Engine.DebuggerStopped += stopped;
     }
@@ -61,6 +70,7 @@ public sealed partial class MainWindow
         if (!debuggerHandlers.Remove(session, out var handlers)) return;
         session.Engine.StateChanged -= handlers.State;
         session.Engine.DebuggerStopped -= handlers.Stop;
+        session.Engine.RunspaceChanged -= handlers.Runspace;
     }
 
     private void RenderDebugger()
@@ -81,6 +91,8 @@ public sealed partial class MainWindow
         DebuggerScope.Text = session?.DebugSnapshot is { CallStack.Count: > 0 } snapshot
             ? string.Format(UiText.Get("DebuggerInspectionScope"), snapshot.CallStack[session.SelectedDebugFrame].FunctionName)
             : UiText.Get("DebuggerEvaluationScope");
+        if (session?.Engine.IsRemote == true)
+            DebuggerScope.Text = $"[{session.Engine.RemoteComputerName}] " + DebuggerScope.Text;
         var selectedId = (BreakpointsList.SelectedItem as DebugBreakpoint)?.Id;
         BreakpointsList.ItemsSource = session?.Breakpoints;
         BreakpointsList.SelectedItem = session?.Breakpoints.FirstOrDefault(breakpoint => breakpoint.Id == selectedId);
@@ -137,13 +149,14 @@ public sealed partial class MainWindow
 
     private async Task RefreshDebuggerCoreAsync(SessionModel session, bool reconcile)
     {
+        if (windowClosed || !Workbench.Sessions.Contains(session)) return;
         var revision = session.DebugRevisionCounter;
         var state = session.Engine.State;
         if (state != SessionState.Ready && !session.Engine.IsDebuggerPaused) return;
         try
         {
             if (state == SessionState.Ready && !reconcile)
-                foreach (var tab in session.Files.Where(tab => tab.File.Path is not null))
+                foreach (var tab in session.Files.Where(tab => tab.File.Path is not null && FileInCurrentRunspace(session, tab)))
                 {
                     await session.Engine.SetLineBreakpointsAsync(tab.File.Path!, tab.LineBreakpoints);
                     tab.AcknowledgeBreakpointLines();
@@ -155,13 +168,14 @@ public sealed partial class MainWindow
                 if (session == displayedSession) RenderDebugger();
             }
             var snapshot = state == SessionState.Debugging ? await session.Engine.InspectAsync(session.Watches, session.SelectedDebugFrame) : null;
-            if (revision != session.DebugRevisionCounter || session.Engine.State != state) return;
+            if (windowClosed || !Workbench.Sessions.Contains(session) ||
+                revision != session.DebugRevisionCounter || session.Engine.State != state) return;
             session.Breakpoints = breakpoints;
             session.DebugSnapshot = snapshot;
             if (reconcile)
-                foreach (var tab in session.Files.Where(tab => tab.File.Path is not null && !tab.File.IsDirty))
+                foreach (var tab in session.Files.Where(tab => tab.File.Path is not null && !tab.File.IsDirty && FileInCurrentRunspace(session, tab)))
                     tab.ReplaceBreakpoints(breakpoints.Where(breakpoint => breakpoint.Spec.Kind == BreakpointKind.Line &&
-                        SameScript(breakpoint.Spec.ScriptPath, tab.File.Path)).Select(breakpoint => breakpoint.Spec));
+                        SameScript(breakpoint.Spec.ScriptPath, tab.File.Path, tab.File.IsRemote)).Select(breakpoint => breakpoint.Spec));
             if (session == displayedSession)
             {
                 RenderDebugger();
@@ -176,8 +190,8 @@ public sealed partial class MainWindow
         }
     }
 
-    private static bool SameScript(string? first, string? second) =>
-        string.Equals(first, second, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    private static bool SameScript(string? first, string? second, bool remote = false) =>
+        string.Equals(first, second, !remote && OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     private async Task ToggleLineBreakpointAsync(SessionModel session, ScriptTab file, int? sourceLine = null)
     {
@@ -189,6 +203,7 @@ public sealed partial class MainWindow
         {
             if (file.File.Path is not null)
             {
+                if (!FileInCurrentRunspace(session, file)) throw new InvalidOperationException("This file is not in the active runspace. Open the remote copy before setting breakpoints.");
                 await session.Engine.SetLineBreakpointsAsync(file.File.Path, file.LineBreakpoints);
                 file.AcknowledgeBreakpointLines();
                 await RefreshDebuggerAsync(session, reconcile: true);
@@ -223,10 +238,10 @@ public sealed partial class MainWindow
 
     private static void ApplyBreakpointChange(SessionModel session, BreakpointSpec? previous, BreakpointSpec? replacement)
     {
-        foreach (var tab in session.Files.Where(tab => tab.File.Path is not null))
+        foreach (var tab in session.Files.Where(tab => tab.File.Path is not null && FileInCurrentRunspace(session, tab)))
         {
-            var applies = replacement?.Kind == BreakpointKind.Line && SameScript(replacement.ScriptPath, tab.File.Path);
-            if (previous?.Kind == BreakpointKind.Line && SameScript(previous.ScriptPath, tab.File.Path))
+            var applies = replacement?.Kind == BreakpointKind.Line && SameScript(replacement.ScriptPath, tab.File.Path, tab.File.IsRemote);
+            if (previous?.Kind == BreakpointKind.Line && SameScript(previous.ScriptPath, tab.File.Path, tab.File.IsRemote))
                 tab.ApplyBreakpointChange(previous, applies ? replacement : null);
             else if (applies && replacement!.Line > 0 && replacement.Line <= tab.Document.LineCount)
                 tab.SetBreakpoint(replacement);
@@ -267,6 +282,7 @@ public sealed partial class MainWindow
     {
         if (renderingDebugger || displayedSession is not { } session || !session.Engine.IsDebuggerPaused ||
             CallStackList.SelectedItem is not DebugFrame frame || frame.Index == session.SelectedDebugFrame) return;
+        if (session.Engine.IsRemote) return;
         var previous = session.SelectedDebugFrame;
         session.SelectedDebugFrame = frame.Index;
         session.Completion = null;
@@ -290,7 +306,7 @@ public sealed partial class MainWindow
         if (CallStackList.SelectedItem is not DebugFrame { ScriptPath: not null } frame) return;
         await GuardAsync(async () =>
         {
-            await OpenFileAsync(frame.ScriptPath);
+            if (displayedSession is { } session) await OpenDebuggerSourceAsync(session, frame.ScriptPath);
             if (frame.Line > 0 && frame.Line <= ScriptEditor.Document.LineCount)
             {
                 ScriptEditor.ScrollToLine(frame.Line);
@@ -316,6 +332,7 @@ public sealed partial class MainWindow
 
     private async Task SaveDebuggerSettingsAsync(SessionModel session)
     {
+        if (session.Engine.IsRunspacePushed) return;
         await debuggerSettingsGate.WaitAsync();
         try
         {

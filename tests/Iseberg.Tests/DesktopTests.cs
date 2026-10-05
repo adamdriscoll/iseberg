@@ -27,6 +27,153 @@ public static class TestApplication
 public sealed class DesktopTests
 {
     [AvaloniaFact]
+    public async Task ClosingDuringCommandDiscoveryDoesNotPublishMetadataOrOpenAnErrorDialog()
+    {
+        var window = new MainWindow([], initializeOnOpen: false);
+        var session = new SessionModel("PowerShell 1");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcherErrors = new List<Exception>();
+        void OnDispatcherError(object? sender, Avalonia.Threading.DispatcherUnhandledExceptionEventArgs args)
+        {
+            dispatcherErrors.Add(args.Exception);
+            args.Handled = true;
+        }
+        Avalonia.Threading.Dispatcher.UIThread.UnhandledException += OnDispatcherError;
+        try
+        {
+            await session.Engine.InitializeAsync();
+            await session.Engine.ExecuteAsync("""
+                function Get-Command {
+                    Write-Host 'closing-discovery-started'
+                    Start-Sleep -Milliseconds 500
+                    Microsoft.PowerShell.Core\Get-Command @args
+                }
+                """);
+            session.Engine.Output += entry =>
+            {
+                if (entry.Kind == OutputKind.Output && entry.Text.Contains("closing-discovery-started"))
+                    started.TrySetResult();
+            };
+            window.Workbench.Sessions.Add(session);
+            window.Workbench.SelectedSession = session;
+            Layout(window);
+            session.SelectedCommand = "Get-Process";
+            window.FindControl<Button>("CommandRefreshButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            window.Close();
+            await session.Engine.DisposeAsync();
+            await Task.Delay(100);
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Assert.Empty(session.Commands);
+            Assert.Empty(dispatcherErrors);
+        }
+        finally
+        {
+            Avalonia.Threading.Dispatcher.UIThread.UnhandledException -= OnDispatcherError;
+            if (session.Engine.State != Iseberg.Core.SessionState.Disposed) await session.Engine.DisposeAsync();
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task RemoteConnectionDialogValidatesAndCreatesBothTransportConfigurations()
+    {
+        var owner = new MainWindow([], initializeOnOpen: false);
+        Layout(owner);
+        try
+        {
+            foreach (var transport in new[] { 0, 1 })
+            {
+                var window = new RemoteConnectionWindow();
+                var result = window.ShowDialog<System.Management.Automation.Runspaces.RunspaceConnectionInfo?>(owner);
+                window.FindControl<ComboBox>("RemoteTransport")!.SelectedIndex = transport;
+                var connect = window.GetLogicalDescendants().OfType<Button>().Single(button => button.Content as string == UiText.Get("RemoteConnect"));
+                connect.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.Equal(UiText.Get("RemoteAddressRequired"), window.FindControl<TextBlock>("RemoteConnectionError")!.Text);
+                Assert.Equal(transport == 1, window.FindControl<TextBox>("RemotePassword")!.IsEnabled);
+                window.FindControl<TextBox>("RemoteAddress")!.Text = transport == 0 ? "test-host" : "https://test-host:5986/wsman";
+                window.FindControl<TextBox>("RemoteUser")!.Text = "test-user";
+                if (transport == 0) window.FindControl<TextBox>("RemotePort")!.Text = "2022";
+                connect.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var connection = await result;
+                if (transport == 0)
+                {
+                    var ssh = Assert.IsType<System.Management.Automation.Runspaces.SSHConnectionInfo>(connection);
+                    Assert.Equal("test-host", ssh.ComputerName);
+                    Assert.Equal("test-user", ssh.UserName);
+                    Assert.Equal(2022, ssh.Port);
+                    Assert.Equal("powershell", ssh.Subsystem);
+                }
+                else
+                {
+                    var wsman = Assert.IsType<System.Management.Automation.Runspaces.WSManConnectionInfo>(connection);
+                    Assert.Equal(new Uri("https://test-host:5986/wsman"), wsman.ConnectionUri);
+                    Assert.Equal("test-user", wsman.Credential.UserName);
+                    wsman.Credential.Password.Dispose();
+                }
+            }
+        }
+        finally { owner.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task RemoteTabDebuggerNavigatesRemoteSourceAndRestoresLocalBreakpointContext()
+    {
+        await using var server = await RemotingTests.RemoteServer.StartAsync();
+        var window = new MainWindow([], initializeOnOpen: false);
+        var session = new SessionModel("PowerShell 1");
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + "-remote-ui.ps1");
+        await File.WriteAllTextAsync(path, "$remoteUiValue = 21\n$remoteUiValue = 42\n$remoteUiValue\n");
+        Task? execution = null;
+        try
+        {
+            await session.Engine.InitializeAsync();
+            window.Workbench.Sessions.Add(session);
+            window.Workbench.SelectedSession = session;
+            Layout(window);
+            await window.OpenFileAsync(path);
+            var local = session.SelectedFile!;
+            await session.Engine.SetBreakpointsAsync(path, [1]);
+            await session.Engine.ConnectAsync(server.Connection);
+            await WaitForUiAsync(() => session.Commands.Count > 0 && session.DisplayName.Contains('['), TestTimeouts.CommandDiscovery);
+            Assert.True(window.FindControl<TabStrip>("SessionTabs")!.Items.Count == 1);
+            Assert.True(window.FindControl<TabStrip>("SessionTabs")!.IsVisible);
+            await window.OpenRemoteFileAsync(path);
+            var remote = session.SelectedFile!;
+            Assert.NotSame(local, remote);
+            Assert.True(remote.File.IsRemote);
+            Assert.Equal(2, session.Files.Count);
+            Assert.Empty(await session.Engine.GetBreakpointsAsync());
+            await session.Engine.SetBreakpointsAsync(path, [2]);
+            session.Watches.Add("$remoteUiValue");
+            execution = session.Engine.ExecuteAsync("", path);
+            await WaitForUiAsync(() => session.DebugSnapshot is not null);
+            Assert.Same(remote, session.SelectedFile);
+            Assert.Contains(session.DebugSnapshot!.Variables, value => value.Name == "$remoteUiValue" && value.Value == "21");
+            Assert.Contains(session.Engine.RemoteComputerName!, window.FindControl<TextBlock>("DebuggerScope")!.Text);
+            Assert.True(window.FindControl<Border>("DebuggerPane")!.IsVisible);
+            Assert.True(window.FindControl<TextEditor>("ScriptEditor")!.IsReadOnly);
+            session.FlushOutput();
+            Assert.Contains(session.Engine.DebugPrompt, session.ConsoleDocument.Text);
+            session.Engine.Resume(System.Management.Automation.DebuggerResumeAction.Continue);
+            await execution.WaitAsync(TimeSpan.FromSeconds(20));
+            await WaitForUiAsync(() => session.DebugSnapshot is null);
+            await session.Engine.ExitRemoteSessionAsync();
+            await WaitForUiAsync(() => session.Breakpoints.Count == 1 && !session.DisplayName.Contains('['));
+            Assert.Equal(1, session.Breakpoints.Single().Spec.Line);
+            Assert.Equal(2, session.Files.Count);
+        }
+        finally
+        {
+            await session.Engine.StopAsync();
+            if (execution is not null) await execution;
+            await session.Engine.DisposeAsync();
+            window.Close();
+            File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact]
     public async Task ConsoleEnterRunsCommandBeforeEditorConsumesTheKey()
     {
         var window = new MainWindow([], initializeOnOpen: false);
@@ -361,9 +508,9 @@ public sealed class DesktopTests
         }
     }
 
-    private static async Task WaitForUiAsync(Func<bool> condition)
+    private static async Task WaitForUiAsync(Func<bool> condition, TimeSpan? timeout = null)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
+        var deadline = DateTime.UtcNow.Add(timeout ?? TimeSpan.FromSeconds(10));
         while (!condition() && DateTime.UtcNow < deadline)
         {
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();

@@ -32,6 +32,7 @@ public sealed class ToolbarIcon : Control
         switch (Kind)
         {
             case "New": Shape("M3,1 L11,1 15,5 15,17 3,17 Z", Brushes.White); Shape("M11,1 L11,5 15,5", Brushes.LightGray); break;
+            case "OpenRemoteFile":
             case "Open": Shape("M1,5 L1,3 7,3 9,5 16,5 16,15 1,15 Z", Brushes.Goldenrod); Shape("M1,15 L4,8 18,8 15,15 Z", Brushes.Khaki); break;
             case "Save":
             case "SaveAll":
@@ -49,7 +50,7 @@ public sealed class ToolbarIcon : Control
             case "Cut": context.DrawLine(new Pen(ink, 2), new(4, 14), new(14, 2)); context.DrawLine(new Pen(ink, 2), new(14, 14), new(4, 2)); context.DrawEllipse(null, new Pen(ink, 1.5), new Point(3, 14), 2.5, 2.5); context.DrawEllipse(null, new Pen(ink, 1.5), new Point(15, 14), 2.5, 2.5); break;
             case "Undo": Shape("M7,2 L1,7 7,11 7,8 C14,6 17,12 13,16 C20,12 16,3 7,5 Z", Brushes.SteelBlue); break;
             case "Redo": Shape("M11,2 L17,7 11,11 11,8 C4,6 1,12 5,16 C-2,12 2,3 11,5 Z", Brushes.SteelBlue); break;
-            case "Close": case "CloseSession": case "Exit":
+            case "Close": case "CloseSession": case "Exit": case "ExitRemoteSession":
                 context.DrawLine(new Pen(ink, 1.5), new(4, 4), new(14, 14));
                 context.DrawLine(new Pen(ink, 1.5), new(14, 4), new(4, 14)); break;
             case "SaveAs":
@@ -61,6 +62,10 @@ public sealed class ToolbarIcon : Control
                 Shape("M4,5 L7,8 4,11 M9,11 L13,11", Brushes.Transparent);
                 context.DrawLine(new Pen(ink, 2), new(11, 3), new(17, 3));
                 context.DrawLine(new Pen(ink, 2), new(14, 0), new(14, 6)); break;
+            case "NewRemoteSession":
+                Shape("M1,1 L10,1 10,9 1,9 Z M8,9 L17,9 17,17 8,17 Z", Brushes.SteelBlue);
+                Shape("M3,4 L6,6 3,8 M10,12 L13,14 10,16 M11,4 L15,4 15,8", Brushes.Transparent);
+                break;
             case "Find": case "Replace": case "GoToLine":
                 context.DrawEllipse(null, new Pen(ink, 2), new(7, 7), 5, 5);
                 context.DrawLine(new Pen(ink, 2), new(11, 11), new(17, 17));
