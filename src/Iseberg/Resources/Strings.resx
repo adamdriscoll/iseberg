@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <data name="StartupFailureTitle" xml:space="preserve"><value>Iseberg could not start</value></data>
   <data name="NewRemoteSession" xml:space="preserve"><value>New _Remote PowerShell Tab...</value></data>
   <data name="OpenRemoteFile" xml:space="preserve"><value>Open Remote File...</value></data>
   <data name="SaveRemoteFile" xml:space="preserve"><value>Save Remote File</value></data>

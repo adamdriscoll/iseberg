@@ -92,8 +92,9 @@ public sealed partial class PowerShellSession : IAsyncDisposable
                 var profile = PSObject.AsPSObject(Path.Combine(config, "Iseberg_profile.ps1"));
                 profile.Properties.Add(new PSNoteProperty("CurrentUserCurrentHost", profile.BaseObject));
                 profile.Properties.Add(new PSNoteProperty("CurrentUserAllHosts", Path.Combine(config, "profile.ps1")));
-                profile.Properties.Add(new PSNoteProperty("AllUsersCurrentHost", Path.Combine(AppContext.BaseDirectory, "Iseberg_profile.ps1")));
-                profile.Properties.Add(new PSNoteProperty("AllUsersAllHosts", Path.Combine(AppContext.BaseDirectory, "profile.ps1")));
+                var engineHome = Path.GetDirectoryName(typeof(PSObject).Assembly.Location)!;
+                profile.Properties.Add(new PSNoteProperty("AllUsersCurrentHost", Path.Combine(engineHome, "Iseberg_profile.ps1")));
+                profile.Properties.Add(new PSNoteProperty("AllUsersAllHosts", Path.Combine(engineHome, "profile.ps1")));
                 runspace.SessionStateProxy.SetVariable("PROFILE", profile);
                 RefreshPrompt();
             });
