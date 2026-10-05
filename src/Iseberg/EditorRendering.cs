@@ -128,18 +128,21 @@ public sealed class ScriptAdornments(Func<ScriptTab?> file, Func<DebugLocation?>
     public void Draw(TextView textView, DrawingContext context)
     {
         if (file() is not { } current || !textView.VisualLinesValid) return;
+        var breakpoints = current.LineBreakpoints.ToDictionary(spec => spec.Line);
         foreach (var line in textView.VisualLines)
         {
             var number = line.FirstDocumentLine.LineNumber;
             var isDebug = debug() is { } location && location.Line == number &&
                 string.Equals(location.ScriptPath, current.File.Path, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
             var isBreakpoint = current.File.Breakpoints.Contains(number);
+            var enabled = !breakpoints.TryGetValue(number, out var spec) || spec.Enabled;
             if (!isDebug && !isBreakpoint) continue;
             var y = line.VisualTop - textView.ScrollOffset.Y;
             context.DrawRectangle(DesktopTheme.HighContrast ? DesktopTheme.Brush("ControlBrush") : isDebug ? new SolidColorBrush(Color.Parse("#FFF4B0")) : new SolidColorBrush(Color.Parse("#FADADA")),
                 null, new Rect(0, y, textView.Bounds.Width, line.Height));
-            context.DrawEllipse(DesktopTheme.HighContrast ? DesktopTheme.Brush("ControlTextBrush") : isDebug ? Brushes.Goldenrod : Brushes.DarkRed,
-                null, new Point(5, y + line.Height / 2), 4, 4);
+            var marker = DesktopTheme.HighContrast ? DesktopTheme.Brush("ControlTextBrush") : isDebug ? Brushes.Goldenrod : Brushes.DarkRed;
+            context.DrawEllipse(isDebug || enabled ? marker : null,
+                enabled ? null : new Pen(marker, 1), new Point(5, y + line.Height / 2), 4, 4);
         }
     }
 }

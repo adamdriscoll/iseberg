@@ -35,6 +35,8 @@ The default view has a white script editor above the blue console, a Commands pa
 | Run selection, or current line | F8 |
 | Stop execution | Ctrl+Break or Shift+F5 |
 | Toggle breakpoint | F9 |
+| Remove all breakpoints | Ctrl+Shift+F9 |
+| Break running script | Ctrl+Alt+Break |
 | Step over / into / out | F10 / F11 / Shift+F11 |
 | Completion / snippets | Ctrl+Space / Ctrl+J |
 | Find / replace / go to line | Ctrl+F / Ctrl+H / Ctrl+G |
@@ -68,6 +70,16 @@ Profiles are opt-in under **Tools > Load profiles in new PowerShell tabs**. `$PR
 Scripts execute with your account's permissions. This is **not a sandbox**. The console is a graphical PowerShell host, not a terminal emulator; full-screen interactive native programs and raw keyboard/buffer operations are not supported.
 
 `Clear-Host` and its `clear`/`cls` aliases clear the graphical console on every supported platform without invoking a native terminal program or resetting the PowerShell session.
+
+### Debugging
+
+F9 toggles a line breakpoint; its marker follows inserted/deleted text. **Debug > Debugger Panes** shows Variables, Watch, Call Stack, and Breakpoints, and opens automatically when execution pauses. Variables and watches reflect the suspended scope, including function-local variables. Add PowerShell expressions in Watch; results refresh on each pause, after console evaluation, or with **Refresh**. Evaluation failures appear beside the affected watch. Double-click a call-stack frame to navigate to its source.
+
+While paused, enter commands in the console at the `[DBG]: PS>` prompt, or use F8 to evaluate a selection/current line without resuming the script. Assignments modify the suspended scope. F5 continues; F10/F11/Shift+F11 step over/into/out. **Debug > Break All** (Ctrl+Alt+Break) requests a pause at the next PowerShell statement; it does not interrupt an in-progress native command or cmdlet. Stop still cancels execution and any active debugger evaluation.
+
+**Debug > New Breakpoint** creates line, command, or variable breakpoints. Line breakpoints need a saved script path; command/variable breakpoints can optionally be restricted to a script. Variable breakpoints support Read, Write, or ReadWrite. A condition is a PowerShell expression that pauses only when true. Alternatively, an action is arbitrary PowerShell code; include `break` to pause. The Breakpoints pane supports editing, enabling/disabling, and deletion while idle or paused, without restarting execution. Disabled line markers are hollow. Ctrl+Shift+F9 removes every breakpoint in the active PowerShell tab, including command and variable breakpoints.
+
+Watches, conditions, actions, and console commands execute real PowerShell with your permissions and can have side effects. Watches and breakpoints are independent per PowerShell tab and are not persisted across application restarts. The inspector shows value/type previews rather than an expandable object tree. Completion remains available only while the runspace is idle.
 
 ### Options and accessibility
 

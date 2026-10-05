@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using AvaloniaEdit;
 using AvaloniaEdit.Document;
 using Iseberg.Core;
@@ -19,6 +20,7 @@ public static class TestApplication
         .UseHeadless(new AvaloniaHeadlessPlatformOptions());
 }
 
+[Collection(PowerShellPolicyCollection.Name)]
 public sealed class DesktopTests
 {
     [AvaloniaFact]
@@ -59,6 +61,116 @@ public sealed class DesktopTests
         var line = tab.Document.GetLineByNumber(3);
         tab.Document.Remove(line.Offset, line.TotalLength);
         Assert.Empty(tab.File.Breakpoints);
+    }
+
+    [AvaloniaFact]
+    public void ConditionalDisabledBreakpointsRetainSettingsWhenLinesMove()
+    {
+        var tab = new ScriptTab(new ScriptFile("test.ps1") { Text = "'first'\n'second'\n" });
+        tab.SetBreakpoint(new(BreakpointKind.Line, Line: 2, Condition: "$value -gt 2", Enabled: false));
+        tab.Document.Insert(0, "# inserted\n");
+        var spec = Assert.Single(tab.LineBreakpoints);
+        Assert.Equal(3, spec.Line);
+        Assert.Equal("$value -gt 2", spec.Condition);
+        Assert.False(spec.Enabled);
+        var line = tab.Document.GetLineByNumber(3);
+        tab.Document.Remove(line.Offset, line.TotalLength);
+        Assert.Empty(tab.LineBreakpoints);
+        Assert.Empty(tab.File.Breakpoints);
+    }
+
+    [AvaloniaFact]
+    public void BreakpointEditorReadsAllKindsAndValidatesConditions()
+    {
+        var spec = new BreakpointSpec(BreakpointKind.Variable, Target: "tracked", Condition: "$tracked -eq 2",
+            Enabled: false, AccessMode: System.Management.Automation.VariableAccessMode.ReadWrite);
+        var dialog = new BreakpointWindow(spec);
+        Assert.Equal(spec, dialog.ReadSpec());
+        dialog.FindControl<ComboBox>("BreakpointKind")!.SelectedItem = BreakpointKind.Line;
+        dialog.FindControl<TextBox>("BreakpointScript")!.Text = Path.Combine(Path.GetTempPath(), "test.ps1");
+        dialog.FindControl<TextBox>("BreakpointLine")!.Text = "7";
+        var line = dialog.ReadSpec();
+        line.Validate();
+        Assert.Equal(7, line.Line);
+        dialog.FindControl<TextBox>("BreakpointCondition")!.Text = "$tracked -eq";
+        Assert.Throws<System.Management.Automation.ParseException>(() => dialog.ReadSpec().Validate());
+        dialog.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task PausedWorkbenchEvaluatesConsoleAndShowsLiveInspectionAndBreakpointControls()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"iseberg-desktop-debug-{Guid.NewGuid():N}.ps1");
+        var previousPolicy = Environment.GetEnvironmentVariable("PSExecutionPolicyPreference");
+        await File.WriteAllTextAsync(path, "$localValue = 21\n$localValue += 1\n\"result=$localValue\"\n");
+        var window = new MainWindow([], initializeOnOpen: false);
+        var session = new SessionModel("PowerShell 1");
+        try
+        {
+            await session.Engine.InitializeAsync();
+            if (OperatingSystem.IsWindows())
+                await session.Engine.ExecuteAsync("Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force");
+            var file = new ScriptTab(await ScriptFile.OpenAsync(path));
+            file.ToggleBreakpoint(2);
+            session.Files.Add(file);
+            session.SelectedFile = file;
+            session.Watches.Add("$localValue * 2");
+            window.Workbench.Sessions.Add(session);
+            window.Workbench.SelectedSession = session;
+            Layout(window);
+            await session.Engine.SetLineBreakpointsAsync(path, file.LineBreakpoints);
+            file.Document.Insert(0, "# edited after breakpoint installation\n");
+            var execution = session.Engine.ExecuteAsync("", path);
+            await WaitForUiAsync(() => session.DebugSnapshot is not null);
+            Assert.Equal(3, file.File.Breakpoints.Single());
+            var console = window.FindControl<TextEditor>("ConsoleEditor")!;
+            Assert.False(console.IsReadOnly);
+            Assert.True(window.FindControl<TextEditor>("ScriptEditor")!.IsReadOnly);
+            Assert.True(window.FindControl<Border>("DebuggerPane")!.IsVisible);
+            Assert.Contains(window.FindControl<ListBox>("VariablesList")!.Items.OfType<DebugValue>(), value => value.Name == "$localValue" && value.Value == "21");
+            Assert.Equal("42", window.FindControl<ListBox>("WatchesList")!.Items.OfType<DebugValue>().Single().Value);
+            Assert.NotEmpty(window.FindControl<ListBox>("CallStackList")!.Items);
+
+            session.Input = "$localValue = 40";
+            console.CaretOffset = console.Document.TextLength;
+            console.TextArea.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            await WaitForUiAsync(() => session.DebugSnapshot?.Watches[0].Value == "80");
+            Assert.Equal(3, file.File.Breakpoints.Single());
+            Assert.True(session.Console.HasPrompt);
+            Assert.Equal(Iseberg.Core.SessionState.Debugging, session.Engine.State);
+            var breakpoints = window.FindControl<ListBox>("BreakpointsList")!;
+            breakpoints.SelectedIndex = 0;
+            window.FindControl<Button>("EnableBreakpointButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await WaitForUiAsync(() => file.LineBreakpoints.Single().Enabled == false);
+            Assert.Equal(3, file.File.Breakpoints.Single());
+            Assert.False(session.Breakpoints.Single().Spec.Enabled);
+
+            session.Engine.Resume(System.Management.Automation.DebuggerResumeAction.Continue);
+            await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            await WaitForUiAsync(() => session.DebugLocation is null && !window.FindControl<TextEditor>("ScriptEditor")!.IsReadOnly);
+            Assert.Empty(window.FindControl<ListBox>("VariablesList")!.Items);
+            session.FlushOutput();
+            Assert.Contains("result=41", session.ConsoleDocument.Text);
+        }
+        finally
+        {
+            await session.Engine.DisposeAsync();
+            window.Close();
+            File.Delete(path);
+            Environment.SetEnvironmentVariable("PSExecutionPolicyPreference", previousPolicy);
+        }
+    }
+
+    private static async Task WaitForUiAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        Assert.True(condition(), "The debugger UI did not reach the expected state.");
     }
 
     [AvaloniaFact]

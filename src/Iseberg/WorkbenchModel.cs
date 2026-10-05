@@ -16,7 +16,7 @@ public abstract class ObservableModel : INotifyPropertyChanged
 public sealed class ScriptTab : ObservableModel
 {
     public Guid RecoveryId { get; } = Guid.NewGuid();
-    private readonly List<TextAnchor> breakpointAnchors = [];
+    private readonly List<(TextAnchor Anchor, BreakpointSpec Spec)> breakpointAnchors = [];
     public ScriptFile File { get; }
     public TextDocument Document { get; }
     public ScriptTab(ScriptFile file)
@@ -26,34 +26,79 @@ public sealed class ScriptTab : ObservableModel
         Document.Changing += (_, change) =>
         {
             if (change.RemovalLength > 0 && Document.GetText(change.Offset, change.RemovalLength).Contains('\n'))
-                breakpointAnchors.RemoveAll(anchor => !anchor.IsDeleted &&
-                    anchor.Offset >= change.Offset && anchor.Offset < change.Offset + change.RemovalLength);
+                breakpointAnchors.RemoveAll(entry => !entry.Anchor.IsDeleted &&
+                    entry.Anchor.Offset >= change.Offset && entry.Anchor.Offset < change.Offset + change.RemovalLength);
         };
         Document.TextChanged += (_, _) =>
         {
             File.Text = Document.Text;
-            breakpointAnchors.RemoveAll(anchor => anchor.IsDeleted);
+            breakpointAnchors.RemoveAll(entry => entry.Anchor.IsDeleted);
             File.Breakpoints.Clear();
-            foreach (var anchor in breakpointAnchors)
-                File.Breakpoints.Add(anchor.Line);
+            foreach (var entry in breakpointAnchors)
+                File.Breakpoints.Add(entry.Anchor.Line);
         };
     }
 
     public void ToggleBreakpoint(int line)
     {
-        var existing = breakpointAnchors.FirstOrDefault(anchor => !anchor.IsDeleted && anchor.Line == line);
-        if (existing is not null)
+        var existing = breakpointAnchors.FindIndex(entry => !entry.Anchor.IsDeleted && entry.Anchor.Line == line);
+        if (existing >= 0)
         {
-            breakpointAnchors.Remove(existing);
+            breakpointAnchors.RemoveAt(existing);
             File.Breakpoints.Remove(line);
         }
         else
         {
-            var anchor = Document.CreateAnchor(Document.GetLineByNumber(line).Offset);
-            anchor.MovementType = AnchorMovementType.AfterInsertion;
-            breakpointAnchors.Add(anchor);
-            File.Breakpoints.Add(line);
+            SetBreakpoint(new(BreakpointKind.Line, File.Path, Line: line));
         }
+    }
+
+    public IReadOnlyList<BreakpointSpec> LineBreakpoints => breakpointAnchors.Where(entry => !entry.Anchor.IsDeleted)
+        .Select(entry => entry.Spec with { ScriptPath = File.Path, Line = entry.Anchor.Line }).DistinctBy(spec => spec.Line).ToArray();
+
+    public void SetBreakpoint(BreakpointSpec spec)
+    {
+        if (spec.Kind != BreakpointKind.Line || spec.Line < 1 || spec.Line > Document.LineCount)
+            throw new ArgumentException("The breakpoint must refer to a line in this document.");
+        breakpointAnchors.RemoveAll(entry => !entry.Anchor.IsDeleted && entry.Anchor.Line == spec.Line);
+        var anchor = Document.CreateAnchor(Document.GetLineByNumber(spec.Line).Offset);
+        anchor.MovementType = AnchorMovementType.AfterInsertion;
+        breakpointAnchors.Add((anchor, spec));
+        File.Breakpoints.Add(spec.Line);
+    }
+
+    public void ReplaceBreakpoints(IEnumerable<BreakpointSpec> specs)
+    {
+        ClearBreakpoints();
+        foreach (var spec in specs.Where(spec => spec.Line > 0 && spec.Line <= Document.LineCount)) SetBreakpoint(spec);
+    }
+
+    public void AcknowledgeBreakpointLines()
+    {
+        for (var index = 0; index < breakpointAnchors.Count; index++)
+        {
+            var entry = breakpointAnchors[index];
+            if (!entry.Anchor.IsDeleted)
+                breakpointAnchors[index] = (entry.Anchor, entry.Spec with { Line = entry.Anchor.Line });
+        }
+    }
+
+    public void ApplyBreakpointChange(BreakpointSpec previous, BreakpointSpec? replacement)
+    {
+        var index = breakpointAnchors.FindIndex(entry => !entry.Anchor.IsDeleted && entry.Spec.Line == previous.Line);
+        if (index < 0) index = breakpointAnchors.FindIndex(entry => !entry.Anchor.IsDeleted && entry.Anchor.Line == previous.Line);
+        if (index >= 0)
+        {
+            var entry = breakpointAnchors[index];
+            if (replacement is not null && replacement.Line == previous.Line)
+            {
+                breakpointAnchors[index] = (entry.Anchor, replacement);
+                return;
+            }
+            File.Breakpoints.Remove(entry.Anchor.Line);
+            breakpointAnchors.RemoveAt(index);
+        }
+        if (replacement is { Line: > 0 } && replacement.Line <= Document.LineCount) SetBreakpoint(replacement);
     }
 
     public void ClearBreakpoints()
@@ -83,6 +128,12 @@ public sealed class SessionModel : ObservableModel
     public string? SelectedCommand { get; set; }
     public Dictionary<string, CommandForm> CommandForms { get; } = new(StringComparer.OrdinalIgnoreCase);
     public DebugLocation? DebugLocation { get; set; }
+    public List<string> Watches { get; } = [];
+    public DebugSnapshot? DebugSnapshot { get; set; }
+    public IReadOnlyList<DebugBreakpoint> Breakpoints { get; set; } = [];
+    public bool DebuggerPaneVisible { get; set; }
+    internal int DebugRevisionCounter;
+    public bool Evaluating { get; set; }
     public ScriptTab? SelectedFile
     {
         get => selectedFile;
@@ -103,10 +154,10 @@ public sealed class SessionModel : ObservableModel
         var batch = new List<OutputEntry>();
         while (batch.Count < 2000 && output.TryDequeue(out var entry)) batch.Add(entry);
         if (batch.Count > 0) Console.AppendBatch(batch);
-        if (Engine.State == SessionState.Ready && output.IsEmpty)
+        if ((Engine.State == SessionState.Ready || Engine.IsDebuggerPaused) && !Evaluating && output.IsEmpty)
         {
             changed |= !Console.HasPrompt;
-            Console.ShowPrompt(Engine.Prompt);
+            Console.ShowPrompt(Engine.State == SessionState.Debugging ? "[DBG]: PS> " : Engine.Prompt);
         }
         return changed;
     }
