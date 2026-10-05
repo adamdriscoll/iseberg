@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.adamdriscoll.iseberg</string>
+  <key>CFBundleName</key><string>Iseberg</string>
+  <key>CFBundleDisplayName</key><string>Iseberg</string>
+  <key>CFBundleExecutable</key><string>Iseberg</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>@NUMERIC_VERSION@</string>
+  <key>CFBundleVersion</key><string>@NUMERIC_VERSION@</string>
+  <key>IsebergReleaseVersion</key><string>@VERSION@</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>PowerShell files</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeExtensions</key><array><string>ps1</string><string>psm1</string><string>psd1</string></array>
+      <key>LSItemContentTypes</key><array><string>com.adamdriscoll.iseberg.ps1</string><string>com.adamdriscoll.iseberg.psm1</string><string>com.adamdriscoll.iseberg.psd1</string></array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.adamdriscoll.iseberg.ps1</string>
+      <key>UTTypeDescription</key><string>PowerShell script</string>
+      <key>UTTypeConformsTo</key><array><string>public.plain-text</string></array>
+      <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>ps1</string></array></dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.adamdriscoll.iseberg.psm1</string>
+      <key>UTTypeDescription</key><string>PowerShell module</string>
+      <key>UTTypeConformsTo</key><array><string>public.plain-text</string></array>
+      <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>psm1</string></array></dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.adamdriscoll.iseberg.psd1</string>
+      <key>UTTypeDescription</key><string>PowerShell data file</string>
+      <key>UTTypeConformsTo</key><array><string>public.plain-text</string></array>
+      <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>psd1</string></array></dict>
+    </dict>
+  </array>
+</dict>
+</plist>

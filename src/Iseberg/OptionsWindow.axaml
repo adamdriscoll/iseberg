@@ -75,6 +75,7 @@
       <CheckBox x:Name="LocalHelp" Canvas.Left="46" Canvas.Top="353" Content="{local:Ui LocalHelp}" />
       <CheckBox x:Name="ShowToolbar" Canvas.Left="46" Canvas.Top="381" Content="{local:Ui ShowToolbar}" />
       <CheckBox x:Name="DefaultSnippets" Canvas.Left="46" Canvas.Top="409" Content="{local:Ui DefaultSnippets}" />
+      <CheckBox x:Name="CheckForUpdates" Canvas.Left="285" Canvas.Top="353" Content="{local:Ui CheckForUpdates}" />
       <TextBlock Canvas.Left="50" Canvas.Top="441" Text="{local:Ui AutoSaveInterval}" />
       <TextBox x:Name="AutoSaveInterval" Canvas.Left="269" Canvas.Top="440" Width="50" Height="18" AutomationProperties.Name="{local:Ui AutoSaveInterval}" />
       <TextBlock Canvas.Left="50" Canvas.Top="469" Text="{local:Ui RecentFileCount}" />

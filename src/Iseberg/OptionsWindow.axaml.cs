@@ -65,7 +65,7 @@ public sealed partial class OptionsWindow : Window
         };
         ColorTree.SelectionChanged += (_, _) => SelectColor();
         foreach (var box in new[] { ShowOutlining, ShowLineNumbers, WarnDuplicates, PromptToSave, ConsoleIntelliSense,
-                     ConsoleEnterSelects, ScriptIntelliSense, ScriptEnterSelects, LocalHelp, ShowToolbar, DefaultSnippets, FixedWidthOnly })
+                     ConsoleEnterSelects, ScriptIntelliSense, ScriptEnterSelects, LocalHelp, ShowToolbar, DefaultSnippets, CheckForUpdates, FixedWidthOnly })
             box.IsCheckedChanged += (_, _) =>
             {
                 if (updating) return;
@@ -160,6 +160,7 @@ public sealed partial class OptionsWindow : Window
         LocalHelp.IsChecked = draft.UseLocalHelp;
         ShowToolbar.IsChecked = draft.ShowToolbar;
         DefaultSnippets.IsChecked = draft.UseDefaultSnippets;
+        CheckForUpdates.IsChecked = draft.CheckForUpdates;
         FixedWidthOnly.IsChecked = draft.FixedWidthFontsOnly;
         PanePosition.SelectedIndex = Array.IndexOf(layouts, draft.Layout);
         CompletionTimeout.SelectedItem = draft.IntelliSenseTimeoutSeconds;
@@ -209,6 +210,7 @@ public sealed partial class OptionsWindow : Window
         draft.UseLocalHelp = LocalHelp.IsChecked == true;
         draft.ShowToolbar = ShowToolbar.IsChecked == true;
         draft.UseDefaultSnippets = DefaultSnippets.IsChecked == true;
+        draft.CheckForUpdates = CheckForUpdates.IsChecked == true;
         draft.FixedWidthFontsOnly = FixedWidthOnly.IsChecked == true;
         draft.Layout = layouts[Math.Max(0, PanePosition.SelectedIndex)];
         if (CompletionTimeout.SelectedItem is int timeout) draft.IntelliSenseTimeoutSeconds = timeout;

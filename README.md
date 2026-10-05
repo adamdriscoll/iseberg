@@ -20,6 +20,24 @@ dotnet run --project src/Iseberg -- ./example.ps1
 
 PowerShell is included through the SDK dependency; a separate `pwsh` installation is not required. Windows, Linux, and macOS are target platforms. Engine/headless desktop tests and publishing have been verified locally on Windows and Linux, and CI runs the same checks on all three platforms. Native desktop interaction has been exercised on Windows; native Linux/macOS desktop interaction has not yet been verified.
 
+### Install and update
+
+Download unsigned, self-contained packages from [GitHub Releases](https://github.com/adamdriscoll/iseberg/releases), or from the **Artifacts** section of a successful **Build and test** Actions run.
+
+| Platform | Packages | Installation |
+|---|---|---|
+| Windows x64 | MSI, ZIP | Run the MSI (administrator approval required), or extract the ZIP and launch `Iseberg.exe`. |
+| macOS Intel / Apple silicon | DMG, ZIP | Open the DMG and drag `Iseberg.app` to Applications, or extract the ZIP and move the app there. |
+| Linux x64 / ARM64 | ZIP | Extract with an archive tool that preserves executable permissions, then run `./Iseberg` in a graphical desktop. |
+
+The MSI installs to Program Files with a Start menu shortcut. Its feature-selection page offers `.ps1`, `.psm1`, and `.psd1` registrations independently, off by default. Selecting one adds Iseberg to **Open with** and **Default apps**; choose Iseberg there to make it the default editor. Existing defaults and Windows' protected user choices are not overwritten. MSI upgrades retain selected features; uninstall removes installed files, shortcuts, and registrations but leaves user settings/recovery data.
+
+The macOS app declares all three file types for Finder's **Open With**. Use **Get Info > Open with > Change All** to set a default if desired. Associated-file launches open documents for editing, never execute them. Windows/Linux ZIPs do not register file associations. Packages are not signed or notarized yet: Windows/macOS may warn or block launch according to local security policy. Native install/uninstall and desktop interaction across all platforms remain outside this implementation's verification scope.
+
+After startup, Iseberg checks the public GitHub project for a newer **stable** release in the background, with a ten-second timeout. A prompt opens the matching MSI, DMG, or ZIP download in your browser for **manual installation**, or the release page if that architecture's package is not available. Save your work and close Iseberg before installing; portable users can download the ZIP from the release page and replace their extracted app. Nothing is downloaded or installed without your action. Prereleases are not offered automatically.
+
+Disable automatic checks in **Tools > Options > General Settings > Check for updates at startup**, or choose **Disable checks** in the update prompt. **Help > Check for Updates** remains available for manual checks. No releases is a normal result; network/API failures are logged and shown non-modally in the status bar for automatic checks (manual checks show a message), without blocking startup or editing.
+
 On Linux, use a graphical desktop with Avalonia's native dependencies (including X11, fontconfig, and OpenGL or software rendering). Native title bars, file pickers, available fonts, and platform-specific cmdlets necessarily differ by operating system.
 
 ## Use
@@ -120,6 +138,16 @@ dotnet publish src/Iseberg -c Release -r win-x64 --self-contained true -o ./publ
 ```
 
 Use `linux-x64`, `linux-arm64`, `osx-x64`, or `osx-arm64` as appropriate. Do not enable trimming or Native AOT: the PowerShell engine and module discovery depend on reflection and dynamic loading. Release builds omit Avalonia developer tooling.
+
+To create distribution packages, use PowerShell 7 on the corresponding OS:
+
+```powershell
+./packaging/Package.ps1 -Runtime win-x64 -Version 1.2.3
+```
+
+The script publishes self-contained files and writes versioned packages to `publish/artifacts/<runtime>`. Windows restores the pinned WiX tool; macOS uses `hdiutil` and `zip`; Linux uses `zip`. Each run requires fresh output directories. macOS ZIPs contain the full `.app` bundle; Unix ZIPs preserve executable permissions. The original `dotnet publish` path is unchanged.
+
+CI builds packages for all five runtimes after the existing platform tests, using `0.0.<run-number>-ci` versions, and uploads the MSI/DMG/ZIP files as Actions artifacts. **Release packages** runs when a version tag (`v1.2.3` or `1.2.3`, optionally with a prerelease suffix) is pushed or a release is published. It builds from that tag, stamps the application with the release version, and attaches the same packages directly to the release after all packaging jobs succeed. A tag push creates a release if needed; prerelease tags create prereleases. Publishing an existing release preserves its title/body. The workflow needs `contents: write` only for uploading/creating releases. Version numbers must fit MSI limits (major/minor at most 255, patch at most 65535). Release assets use `Iseberg-<version>-<runtime>.<extension>`, which the update checker also uses.
 
 The test suite exercises real PowerShell execution, session isolation, formatted output, input/cancellation, errors, command metadata, completion, script paths, breakpoints/stepping, file encodings, dirty state, parser folding, settings, and headless desktop construction. Remoting tests additionally require `pwsh` on `PATH`: they launch isolated child processes and connect over PowerShell's named-pipe remoting transport, without needing an SSH/WSMan server. They exercise interactive `Enter-PSSession`, remote files, completion, debugger inspection/source navigation, stopping, and connection loss. SSH/WSMan authentication and external-server configuration still need environment-specific verification.
 

@@ -118,10 +118,13 @@ public sealed class OptionsTests
         var dialog = new OptionsWindow(settings, _ => { applied = true; return Task.CompletedTask; });
         Layout(dialog);
         dialog.FindControl<CheckBox>("ShowToolbar")!.IsChecked = false;
+        dialog.FindControl<CheckBox>("CheckForUpdates")!.IsChecked = false;
         Assert.False(dialog.Draft.ShowToolbar);
+        Assert.False(dialog.Draft.CheckForUpdates);
         dialog.FindControl<Button>("CancelOptions")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.False(applied);
         Assert.True(settings.ShowToolbar);
+        Assert.True(settings.CheckForUpdates);
     }
 
     [AvaloniaFact]
@@ -133,11 +136,13 @@ public sealed class OptionsTests
         dialog.FindControl<CheckBox>("ShowLineNumbers")!.IsChecked = false;
         dialog.FindControl<ComboBox>("EditorFontSize")!.SelectedItem = 14d;
         dialog.FindControl<TextBox>("RecentFileCount")!.Text = "25";
+        dialog.FindControl<CheckBox>("CheckForUpdates")!.IsChecked = false;
         dialog.FindControl<Button>("ApplyOptions")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.NotNull(applied);
         Assert.False(applied.ShowLineNumbers);
         Assert.Equal(14, applied.FontSize);
         Assert.Equal(25, applied.RecentFileCount);
+        Assert.False(applied.CheckForUpdates);
         Assert.False(dialog.FindControl<Button>("ApplyOptions")!.IsEnabled);
         dialog.FindControl<CheckBox>("ShowLineNumbers")!.IsChecked = true;
         dialog.FindControl<Button>("CancelOptions")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -176,7 +181,7 @@ public sealed class OptionsTests
     {
         var dialog = new OptionsWindow(new UserSettings
         {
-            ShowToolbar = false, FontSize = 20, LoadProfiles = true, Zoom = 140,
+            ShowToolbar = false, CheckForUpdates = false, FontSize = 20, LoadProfiles = true, Zoom = 140,
             CustomThemes = [new() { Name = "Saved theme" }], RecentFiles = ["example.ps1"],
             DebuggerSessions = [new() { Name = "PowerShell 1", Watches = ["$value"], Breakpoints = [new(BreakpointKind.Command, Target: "Get-Process")] }]
         }, _ => Task.CompletedTask);
@@ -185,6 +190,7 @@ public sealed class OptionsTests
             Layout(dialog);
             dialog.FindControl<Button>("RestoreDefaults")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.True(dialog.Draft.ShowToolbar);
+            Assert.True(dialog.Draft.CheckForUpdates);
             Assert.Equal(9, dialog.Draft.FontSize);
             Assert.True(dialog.Draft.LoadProfiles);
             Assert.Equal(140, dialog.Draft.Zoom);

@@ -22,6 +22,7 @@ public sealed class UserSettings
     public HelpViewSettings HelpView { get; set; } = new();
     public bool ShowToolbar { get; set; } = true;
     public bool UseDefaultSnippets { get; set; } = true;
+    public bool CheckForUpdates { get; set; } = true;
     public int AutoSaveMinutes { get; set; } = 2;
     public int RecentFileCount { get; set; } = 10;
     public string FontFamily { get; set; } = "Lucida Console";

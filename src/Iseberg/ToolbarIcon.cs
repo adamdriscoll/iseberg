@@ -49,6 +49,9 @@ public sealed class ToolbarIcon : Control
             case "Paste": Shape("M3,3 L15,3 15,17 3,17 Z", Brushes.Goldenrod); Shape("M6,1 L12,1 12,5 6,5 Z", Brushes.LightGray); Shape("M7,7 L17,7 17,18 7,18 Z", Brushes.White); break;
             case "Cut": context.DrawLine(new Pen(ink, 2), new(4, 14), new(14, 2)); context.DrawLine(new Pen(ink, 2), new(14, 14), new(4, 2)); context.DrawEllipse(null, new Pen(ink, 1.5), new Point(3, 14), 2.5, 2.5); context.DrawEllipse(null, new Pen(ink, 1.5), new Point(15, 14), 2.5, 2.5); break;
             case "Undo": Shape("M7,2 L1,7 7,11 7,8 C14,6 17,12 13,16 C20,12 16,3 7,5 Z", Brushes.SteelBlue); break;
+            case "CheckForUpdates":
+                Shape("M9,2 L9,12 M5,8 L9,12 13,8 M3,13 L3,16 15,16 15,13", Brushes.Transparent);
+                break;
             case "Redo": Shape("M11,2 L17,7 11,11 11,8 C4,6 1,12 5,16 C-2,12 2,3 11,5 Z", Brushes.SteelBlue); break;
             case "Close": case "CloseSession": case "Exit": case "ExitRemoteSession":
                 context.DrawLine(new Pen(ink, 1.5), new(4, 4), new(14, 14));

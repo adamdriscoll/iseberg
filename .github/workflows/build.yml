@@ -21,3 +21,8 @@ jobs:
           dotnet-version: 10.0.x
       - run: dotnet test Iseberg.slnx -c Release --verbosity minimal
       - run: dotnet publish src/Iseberg -c Release --no-restore -o publish
+  package:
+    needs: test
+    uses: ./.github/workflows/package.yml
+    with:
+      version: 0.0.${{ github.run_number }}-ci
