@@ -444,7 +444,7 @@ public sealed class CommandFormTests
             window.Workbench.SelectedSession = session;
             window.Show();
             var execution = session.Engine.ExecuteAsync("Show-Command");
-            await WaitFor(() => window.OwnedWindows.OfType<ShowCommandPickerWindow>().Any());
+            await WaitFor(() => window.OwnedWindows.OfType<ShowCommandPickerWindow>().Any(), TestTimeouts.CommandDiscovery);
             var picker = window.OwnedWindows.OfType<ShowCommandPickerWindow>().Single();
             picker.FindControl<TextBox>("ShowCommandSearch")!.Text = "Get-Process";
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
@@ -583,9 +583,9 @@ public sealed class CommandFormTests
     private static TextBox Input(Control parameter, string name) =>
         parameter.GetLogicalDescendants().OfType<TextBox>().Single(c => AutomationProperties.GetName(c) == name);
 
-    private static async Task WaitFor(Func<bool> condition)
+    private static async Task WaitFor(Func<bool> condition, TimeSpan? timeout = null)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(10));
         while (!condition() && DateTime.UtcNow < deadline)
         {
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();

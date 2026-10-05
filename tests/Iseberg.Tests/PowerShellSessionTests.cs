@@ -229,6 +229,7 @@ public sealed class PowerShellSessionTests
         var output = Capture(session);
         await session.InitializeAsync();
         var requests = new List<ShowCommandRequest>();
+        var formReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         session.ShowCommandRequested += request =>
         {
             requests.Add(request);
@@ -246,10 +247,12 @@ public sealed class PowerShellSessionTests
                 Assert.Equal(550, request.Width);
                 Assert.Equal(650, request.Height);
                 request.Response.TrySetResult(null);
+                formReady.TrySetResult();
             }
         };
-        await session.ExecuteAsync("Show-Command -NoCommonParameter -Width 550 -Height 650")
-            .WaitAsync(TimeSpan.FromSeconds(10));
+        var execution = session.ExecuteAsync("Show-Command -NoCommonParameter -Width 550 -Height 650");
+        await Task.WhenAny(formReady.Task, execution).WaitAsync(TestTimeouts.CommandDiscovery);
+        await execution.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.DoesNotContain(output, entry => entry.Kind == OutputKind.Error);
         Assert.Equal(2, requests.Count);
     }
@@ -265,7 +268,7 @@ public sealed class PowerShellSessionTests
         var shown = new TaskCompletionSource<ShowCommandRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
         session.ShowCommandRequested += request => shown.TrySetResult(request);
         var execution = session.ExecuteAsync(command);
-        var request = await shown.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var request = await shown.Task.WaitAsync(TestTimeouts.CommandDiscovery);
         await session.StopAsync().WaitAsync(TimeSpan.FromSeconds(10));
         await execution.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.True(request.Response.Task.IsCanceled);
