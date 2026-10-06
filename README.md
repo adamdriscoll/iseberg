@@ -92,6 +92,7 @@ On macOS, Command is also accepted for workbench shortcuts. See the [full shortc
 | Themes, preferences, and accessibility | [Options and accessibility](docs/user-guide.md#options-and-accessibility) |
 | Building, testing, publishing, and VS Code setup | [Development guide](docs/development.md) |
 | Embedding the workbench or hosting PowerShell through NuGet | [NuGet hosting guide](docs/nuget-hosting.md) |
+| Engine-free editor embedding in an Avalonia 12 host | [Editor hosting guide](docs/editor-hosting.md) / [package-only Fluent example](examples/EditorHost/README.md) |
 | Module responsibilities and design decisions | [Architecture overview](docs/architecture.md) |
 
 ## Development

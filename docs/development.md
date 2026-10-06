@@ -101,6 +101,8 @@ dotnet pack Iseberg.slnx -c Release -p:Version=1.2.3 -p:ContinuousIntegrationBui
 
 The output contains `PoshTools.ISEBerg.1.2.3.nupkg` and `PoshTools.Iseberg.Core.1.2.3.nupkg`. Prerelease tags retain their suffix in the NuGet version.
 
+The solution also packs `PoshTools.Iseberg.Editor`, a separate Avalonia 12 editor-only module. Its producer and consumers have committed dependency locks; restore with `--locked-mode`. It is not added to the remote release publishing allow-list by this change. Build its default preview and verify independent package-only Fluent consumers with `.\build\Test-EditorPackage.ps1`; add `-NativeSmoke` on Windows. See the [editor hosting guide](editor-hosting.md) for its smaller interface, dependency/native/license limitations and host ownership.
+
 ### Compact single-file distribution
 
 The `Compact` publish profile produces one compressed, self-contained executable without bundling the PowerShell engine, modules, or its third-party dependencies. Install **PowerShell 7.6.6 or a newer stable 7.6.x patch**, using **.NET 10.0** and the **same architecture** as Iseberg. A separate .NET installation is not required: the executable includes its own runtime.

@@ -3,9 +3,15 @@ using Avalonia.Automation.Peers;
 using Avalonia.Automation.Provider;
 using AvaloniaEdit;
 
+#if ISEBERG_EDITOR
+namespace Iseberg.Editor;
+
+internal sealed class AccessibleTextEditor : TextEditor
+#else
 namespace Iseberg;
 
 public sealed class AccessibleTextEditor : TextEditor
+#endif
 {
     protected override Type StyleKeyOverride => typeof(TextEditor);
     protected override AutomationPeer OnCreateAutomationPeer() => new EditorPeer(this);

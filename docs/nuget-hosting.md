@@ -2,6 +2,8 @@
 
 Embed Iseberg's PowerShell workbench in your own Avalonia application, or use its engine without a UI.
 
+For **text editing only in Avalonia 12**, use the separate locally packable `PoshTools.Iseberg.Editor` module described in the [editor hosting guide](editor-hosting.md). It does not own execution, sessions, output or prompts and must not be replaced with this Avalonia 11 workbench package. None of these packages is currently confirmed published on nuget.org; build a local feed before installing.
+
 ## Packages and requirements
 
 | Package | Use |
