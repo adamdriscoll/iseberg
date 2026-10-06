@@ -8,6 +8,7 @@ internal static class ClassicDialog
 {
     public static void Apply(Window window)
     {
+        DesktopTheme.ApplyWindow(window);
         window.Classes.Add("options");
         window.Styles.Add(new StyleInclude(new Uri("avares://Iseberg/"))
         {

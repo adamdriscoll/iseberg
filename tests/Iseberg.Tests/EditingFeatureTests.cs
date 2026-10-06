@@ -619,9 +619,9 @@ public sealed class EditingFeatureTests
         finally { await session.Engine.DisposeAsync(); window.Close(); }
     }
 
-    private static CompletionWindow? Completion(MainWindow window) => typeof(MainWindow)
+    private static CompletionWindow? Completion(MainWindow window) => typeof(WorkbenchControl)
         .GetField("completion", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-        .GetValue(window) as CompletionWindow;
+        .GetValue(window.Editor) as CompletionWindow;
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {

@@ -10,6 +10,7 @@ public static class Dialogs
 {
     internal static void RegisterNames(Window window)
     {
+        DesktopTheme.ApplyWindow(window);
         var scope = new NameScope();
         NameScope.SetNameScope(window, scope);
         foreach (var control in window.GetLogicalDescendants().OfType<Control>())
@@ -68,15 +69,20 @@ public static class Dialogs
         await window.ShowDialog(owner);
     }
 
-    private static Window Create(string title, double width) => new()
+    private static Window Create(string title, double width)
     {
-        Title = title,
-        Width = width,
-        SizeToContent = SizeToContent.Height,
-        CanResize = false,
-        WindowStartupLocation = WindowStartupLocation.CenterOwner,
-        ShowInTaskbar = false
-    };
+        var window = new Window
+        {
+            Title = title,
+            Width = width,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false
+        };
+        DesktopTheme.ApplyWindow(window);
+        return window;
+    }
     private static StackPanel Body(string message)
     {
         var panel = new StackPanel { Margin = new Thickness(16), Spacing = 12 };

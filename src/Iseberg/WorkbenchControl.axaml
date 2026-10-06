@@ -1,11 +1,8 @@
-<Window xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
         xmlns:local="using:Iseberg"
-        x:Class="Iseberg.MainWindow"
-        Title="Iseberg - PowerShell 7 ISE"
-        Width="1180" Height="780" MinWidth="760" MinHeight="500"
-        WindowStartupLocation="CenterScreen">
+        x:Class="Iseberg.WorkbenchControl">
   <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
     <Menu x:Name="WorkbenchMenu" Grid.Row="0">
       <MenuItem Header="_File">
@@ -241,7 +238,7 @@
         </Grid>
       </Border>
     </Grid>
-    <Border Grid.Row="4" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource ControlBrush}">
+    <Border x:Name="WorkbenchStatusBar" Grid.Row="4" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource ControlBrush}">
       <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="5,2">
         <TextBlock x:Name="StatusText" Text="{local:Ui Starting}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                    ToolTip.Tip="{Binding Text, RelativeSource={RelativeSource Self}}" AutomationProperties.LiveSetting="Polite" />
@@ -254,4 +251,4 @@
       </Grid>
     </Border>
   </Grid>
-</Window>
+</UserControl>

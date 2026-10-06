@@ -5,7 +5,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
+    <Authors>Adam Driscoll</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/adamdriscoll/iseberg</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/adamdriscoll/iseberg</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>nuget-hosting.md</PackageReadmeFile>
     <IsebergCompact Condition="'$(PublishProfile)' == 'Compact'">true</IsebergCompact>
     <DebugType Condition="'$(IsebergCompact)' == 'true'">embedded</DebugType>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)docs\nuget-hosting.md" Pack="true" PackagePath="" />
+  </ItemGroup>
 </Project>

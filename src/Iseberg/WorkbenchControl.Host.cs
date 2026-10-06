@@ -4,7 +4,7 @@ using Iseberg.Core;
 
 namespace Iseberg;
 
-public sealed partial class MainWindow
+public sealed partial class WorkbenchControl
 {
     private async void ShowHostInput(SessionModel session, InputRequest request)
     {
@@ -16,7 +16,7 @@ public sealed partial class MainWindow
             DisplaySession();
             var window = new HostInputWindow(request);
             CloseWhenTaskCompletes(window, request.Response.Task);
-            var answer = await window.ShowDialog<string?>(this);
+            var answer = await window.ShowDialog<string?>(HostWindow);
             if (answer is null) request.Response.TrySetCanceled();
             else request.Response.TrySetResult(answer);
         }
@@ -47,7 +47,7 @@ public sealed partial class MainWindow
             };
             Dialogs.RegisterNames(window);
             CloseWhenTaskCompletes(window, request.Response.Task);
-            await window.ShowDialog(this);
+            await window.ShowDialog(HostWindow);
             request.Response.TrySetResult();
         }
         catch (InvalidOperationException exception)

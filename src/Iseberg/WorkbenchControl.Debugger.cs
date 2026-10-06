@@ -8,7 +8,7 @@ using SessionState = Iseberg.Core.SessionState;
 
 namespace Iseberg;
 
-public sealed partial class MainWindow
+public sealed partial class WorkbenchControl
 {
     private readonly Dictionary<SessionModel, (Action<SessionState> State, Action<DebugLocation?> Stop, Action Runspace)> debuggerHandlers = [];
     private readonly SemaphoreSlim debuggerSettingsGate = new(1, 1);
@@ -226,7 +226,7 @@ public sealed partial class MainWindow
         var spec = selected?.Spec ?? new BreakpointSpec(displayedFile?.File.Path is null ? BreakpointKind.Command : BreakpointKind.Line, displayedFile?.File.Path,
             Line: ScriptEditor.TextArea.Caret.Line);
         await PrepareBreakpointEditAsync(session);
-        var edited = await new BreakpointWindow(spec).ShowDialog<BreakpointSpec?>(this);
+        var edited = await new BreakpointWindow(spec).ShowDialog<BreakpointSpec?>(HostWindow);
         if (edited is null) return;
         if (selected is null) await session.Engine.AddBreakpointAsync(edited);
         else await session.Engine.UpdateBreakpointAsync(selected.Id, edited);
@@ -344,7 +344,7 @@ public sealed partial class MainWindow
             };
             settings.DebuggerSessions.RemoveAll(previous => previous.Name == session.Name);
             settings.DebuggerSessions.Add(saved);
-            if (initialized || settingsFilePath is not null) await settings.SaveAsync(settingsFilePath);
+            if (initialized || persistBeforeInitialization) await SaveSettingsAsync();
         }
         finally { debuggerSettingsGate.Release(); }
     }

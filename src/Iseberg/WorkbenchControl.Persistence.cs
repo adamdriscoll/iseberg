@@ -7,7 +7,7 @@ using Iseberg.Core;
 
 namespace Iseberg;
 
-public sealed partial class MainWindow
+public sealed partial class WorkbenchControl
 {
     private readonly WorkbenchStateStore workbenchStore;
     private readonly SemaphoreSlim workbenchSaveGate = new(1, 1);
@@ -18,7 +18,7 @@ public sealed partial class MainWindow
 
     public async Task SaveWorkbenchAsync(bool released = false)
     {
-        if (restoringWorkbench) return;
+        if (!hostingOptions.EnablePersistence || restoringWorkbench) return;
         if (displayedFile is not null) displayedFile.File.CaretOffset = ScriptEditor.CaretOffset;
         using var process = Process.GetCurrentProcess();
         var snapshot = new WorkbenchState
@@ -46,6 +46,7 @@ public sealed partial class MainWindow
 
     public async Task RestoreWorkbenchAsync()
     {
+        if (!hostingOptions.EnablePersistence) return;
         var snapshot = await workbenchStore.LoadAsync();
         if (snapshot is null || snapshot.Sessions.Count == 0) return;
         restoringWorkbench = true;
@@ -114,43 +115,46 @@ public sealed partial class MainWindow
 
     private void CaptureWindowGeometry()
     {
-        if (WindowState == WindowState.Normal)
+        if (!managesWindow || hostWindow is null) return;
+        if (hostWindow.WindowState == WindowState.Normal)
         {
-            settings.Geometry.WindowWidth = Width;
-            settings.Geometry.WindowHeight = Height;
-            settings.Geometry.WindowX = Position.X;
-            settings.Geometry.WindowY = Position.Y;
+            settings.Geometry.WindowWidth = hostWindow.Width;
+            settings.Geometry.WindowHeight = hostWindow.Height;
+            settings.Geometry.WindowX = hostWindow.Position.X;
+            settings.Geometry.WindowY = hostWindow.Position.Y;
         }
-        if (WindowState != WindowState.Minimized) settings.Geometry.Maximized = WindowState == WindowState.Maximized;
+        if (hostWindow.WindowState != WindowState.Minimized) settings.Geometry.Maximized = hostWindow.WindowState == WindowState.Maximized;
     }
 
     private void ApplyWindowGeometry()
     {
+        if (!managesWindow || hostWindow is null) return;
+        var window = hostWindow;
         var geometry = settings.Geometry;
         geometry.Normalize();
         var position = geometry.WindowX is { } x && geometry.WindowY is { } y ? new PixelPoint(x, y) : (PixelPoint?)null;
-        var screen = position is { } point ? Screens.All.FirstOrDefault(screen => screen.WorkingArea.Contains(point)) : null;
-        screen ??= Screens.Primary;
-        Width = geometry.WindowWidth;
-        Height = geometry.WindowHeight;
+        var screen = position is { } point ? window.Screens.All.FirstOrDefault(screen => screen.WorkingArea.Contains(point)) : null;
+        screen ??= window.Screens.Primary;
+        window.Width = geometry.WindowWidth;
+        window.Height = geometry.WindowHeight;
         if (screen is not null)
         {
-            Width = Math.Max(MinWidth, Math.Min(Width, screen.WorkingArea.Width / screen.Scaling));
-            Height = Math.Max(MinHeight, Math.Min(Height, screen.WorkingArea.Height / screen.Scaling));
+            window.Width = Math.Max(window.MinWidth, Math.Min(window.Width, screen.WorkingArea.Width / screen.Scaling));
+            window.Height = Math.Max(window.MinHeight, Math.Min(window.Height, screen.WorkingArea.Height / screen.Scaling));
             if (position is { } saved && screen.WorkingArea.Contains(saved))
             {
-                WindowStartupLocation = WindowStartupLocation.Manual;
-                Position = new PixelPoint(
-                    Math.Clamp(saved.X, screen.WorkingArea.X, Math.Max(screen.WorkingArea.X, screen.WorkingArea.Right - (int)(Width * screen.Scaling))),
-                    Math.Clamp(saved.Y, screen.WorkingArea.Y, Math.Max(screen.WorkingArea.Y, screen.WorkingArea.Bottom - (int)(Height * screen.Scaling))));
+                window.WindowStartupLocation = WindowStartupLocation.Manual;
+                window.Position = new PixelPoint(
+                    Math.Clamp(saved.X, screen.WorkingArea.X, Math.Max(screen.WorkingArea.X, screen.WorkingArea.Right - (int)(window.Width * screen.Scaling))),
+                    Math.Clamp(saved.Y, screen.WorkingArea.Y, Math.Max(screen.WorkingArea.Y, screen.WorkingArea.Bottom - (int)(window.Height * screen.Scaling))));
             }
             else if (position is not null)
             {
-                WindowStartupLocation = WindowStartupLocation.Manual;
-                Position = new PixelPoint(screen.WorkingArea.X, screen.WorkingArea.Y);
+                window.WindowStartupLocation = WindowStartupLocation.Manual;
+                window.Position = new PixelPoint(screen.WorkingArea.X, screen.WorkingArea.Y);
             }
         }
-        if (geometry.Maximized) WindowState = WindowState.Maximized;
+        if (geometry.Maximized) window.WindowState = WindowState.Maximized;
     }
 
     private async Task PrintScriptAsync()
