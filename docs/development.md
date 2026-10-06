@@ -68,7 +68,7 @@ macOS ZIPs contain the full `.app` bundle; Unix ZIPs preserve executable permiss
 
 CI builds full and compact packages for all five runtimes after the existing platform tests, using `0.0.<run-number>-ci` versions, and uploads the MSI/DMG/ZIP files and NuGet packages as Actions artifacts. Both CI and releases use the same reusable packaging workflow, including native compact runtime checks. CI does not publish to nuget.org.
 
-**Release packages** runs when a version tag (`v1.2.3` or `1.2.3`, optionally with a prerelease suffix) is pushed or a release is published. It builds from that tag, stamps both distributions and NuGet packages with the release version, and attaches the full packages, compact ZIPs, and `.nupkg` files directly to the release after all packaging jobs succeed. After uploading the release assets, it publishes `Iseberg.Core` and `PoshTools.ISEBerg` to nuget.org.
+**Release packages** runs when a version tag (`v1.2.3` or `1.2.3`, optionally with a prerelease suffix) is pushed or a release is published. It builds from that tag, stamps both distributions and NuGet packages with the release version, and attaches the full packages, compact ZIPs, and `.nupkg` files directly to the release after all packaging jobs succeed. After uploading the release assets, it publishes `PoshTools.Iseberg.Core` and `PoshTools.ISEBerg` to nuget.org.
 
 A tag push creates a release if needed; prerelease tags create prereleases. Publishing an existing release preserves its title/body. The workflow needs `contents: write` only for uploading/creating releases.
 
@@ -85,11 +85,11 @@ Releases use [NuGet trusted publishing](https://learn.microsoft.com/en-us/nuget/
 | Workflow file | `release.yml` (filename only, not `.github/workflows/release.yml`) |
 | Environment | Leave empty; the publishing job does not use a GitHub Actions environment |
 
-Choose the NuGet package owner and publishing scopes that cover both `PoshTools.ISEBerg` and `Iseberg.Core`, including creating new packages for their first release. Add a **repository Actions secret** named `NUGET_USER` containing your nuget.org **profile username**, not your email address. A stored `NUGET_API_KEY` secret is no longer needed and can be removed.
+Choose the NuGet package owner and publishing scopes that cover both `PoshTools.ISEBerg` and `PoshTools.Iseberg.Core`, including creating new packages for their first release. Add a **repository Actions secret** named `NUGET_USER` containing your nuget.org **profile username**, not your email address. A stored `NUGET_API_KEY` secret is no longer needed and can be removed.
 
 Only the publishing job has `id-token: write`. After downloading the built packages, `NuGet/login@v1` exchanges the GitHub OIDC token for a temporary API key, valid for one hour, immediately before pushing. Missing usernames or mismatched/inactive trusted policies fail authentication. Already-published package versions are skipped so tag/release events and workflow retries do not attempt to overwrite immutable NuGet versions.
 
-Both packages target .NET 10. `PoshTools.ISEBerg` provides the embeddable Avalonia `WorkbenchControl` and depends on the same release version of `Iseberg.Core`, which contains the PowerShell engine and editor services. The assembly and C# namespace remain `Iseberg`. The [NuGet hosting guide](nuget-hosting.md) documents installation, configuration, public operations, persistence, and lifetime management.
+Both packages target .NET 10. `PoshTools.ISEBerg` provides the embeddable Avalonia `WorkbenchControl` and depends on the same release version of `PoshTools.Iseberg.Core`, which contains the PowerShell engine and editor services. The assembly names and C# namespaces remain `Iseberg` and `Iseberg.Core`. The [NuGet hosting guide](nuget-hosting.md) documents installation, configuration, public operations, persistence, and lifetime management.
 
 To build the same packages locally without publishing:
 
@@ -97,7 +97,7 @@ To build the same packages locally without publishing:
 dotnet pack Iseberg.slnx -c Release -p:Version=1.2.3 -p:ContinuousIntegrationBuild=true -o publish/nuget
 ```
 
-The output contains `PoshTools.ISEBerg.1.2.3.nupkg` and `Iseberg.Core.1.2.3.nupkg`. Prerelease tags retain their suffix in the NuGet version.
+The output contains `PoshTools.ISEBerg.1.2.3.nupkg` and `PoshTools.Iseberg.Core.1.2.3.nupkg`. Prerelease tags retain their suffix in the NuGet version.
 
 ### Compact single-file distribution
 

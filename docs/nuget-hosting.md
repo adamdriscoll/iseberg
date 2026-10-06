@@ -6,8 +6,8 @@ Embed Iseberg's PowerShell workbench in your own Avalonia application, or use it
 
 | Package | Use |
 |---|---|
-| `PoshTools.ISEBerg` | `WorkbenchControl`, hosting options, observable session/document models, and the standalone `MainWindow`. Depends on `Iseberg.Core`. |
-| `Iseberg.Core` | `PowerShellSession`, parser analysis, completion, debugger/remoting operations, script files, and preferences without an Avalonia dependency. |
+| `PoshTools.ISEBerg` | `WorkbenchControl`, hosting options, observable session/document models, and the standalone `MainWindow`. Depends on `PoshTools.Iseberg.Core`. |
+| `PoshTools.Iseberg.Core` | `PowerShellSession`, parser analysis, completion, debugger/remoting operations, script files, and preferences without an Avalonia dependency. |
 
 Both packages target **.NET 10**. The UI uses **Avalonia 11.3.22** and **AvaloniaEdit 11.4.1**; use compatible versions in your host. PowerShell **7.6.6** is supplied through `Microsoft.PowerShell.SDK`, so normal package consumers do not need a separate `pwsh` installation. Native Avalonia prerequisites still apply on Windows, Linux, and macOS.
 
@@ -221,10 +221,10 @@ Temporary visual detachment/reparenting does not dispose the control. Do not per
 
 ## Engine-only hosting
 
-Install `Iseberg.Core` when no Avalonia UI is needed:
+Install `PoshTools.Iseberg.Core` when no Avalonia UI is needed. Its assembly name and C# namespace remain `Iseberg.Core`:
 
 ```powershell
-dotnet add package Iseberg.Core --version 1.2.3
+dotnet add package PoshTools.Iseberg.Core --version 1.2.3
 ```
 
 ```csharp
@@ -247,8 +247,8 @@ To build packages locally without publishing:
 dotnet pack Iseberg.slnx -c Release -p:Version=1.2.3 -p:ContinuousIntegrationBuild=true -o publish/nuget
 ```
 
-This creates `PoshTools.ISEBerg.1.2.3.nupkg` and `Iseberg.Core.1.2.3.nupkg`, with this guide as the package readme and XML documentation alongside the assemblies.
+This creates `PoshTools.ISEBerg.1.2.3.nupkg` and `PoshTools.Iseberg.Core.1.2.3.nupkg`, with this guide as the package readme and XML documentation alongside the assemblies.
 
-Releases use [NuGet trusted publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing). Register a nuget.org policy for repository owner `adamdriscoll`, repository `iseberg`, and workflow filename `release.yml`; leave its environment field empty. Choose publishing scopes covering `PoshTools.ISEBerg` and `Iseberg.Core`, including creating new packages for their first release. Add the repository Actions secret **`NUGET_USER`** with your nuget.org profile username (not your email address); no long-lived API key secret is required.
+Releases use [NuGet trusted publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing). Register a nuget.org policy for repository owner `adamdriscoll`, repository `iseberg`, and workflow filename `release.yml`; leave its environment field empty. Choose publishing scopes covering `PoshTools.ISEBerg` and `PoshTools.Iseberg.Core`, including creating new packages for their first release. Add the repository Actions secret **`NUGET_USER`** with your nuget.org profile username (not your email address); no long-lived API key secret is required.
 
 The release publishing job uses GitHub OIDC and `NuGet/login@v1` to obtain a temporary API key immediately before pushing. Release tags supply both package versions, including prerelease suffixes. Publishing pushes Core before the UI package and skips already-published versions; authentication failures fail the job. CI only builds artifacts. See the [publishing setup](https://github.com/adamdriscoll/iseberg/blob/main/docs/development.md#nuget-packages) for the complete trusted-publisher configuration and the [release workflow documentation](https://github.com/adamdriscoll/iseberg/blob/main/docs/development.md#release-workflow) for desktop asset packaging.
