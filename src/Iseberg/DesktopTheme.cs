@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
 
@@ -7,6 +8,8 @@ namespace Iseberg;
 
 public static class DesktopTheme
 {
+    private static readonly Dictionary<string, object> resources = [];
+    private static bool started;
     public static bool HighContrast { get; private set; }
     public static double TextScale { get; private set; } = 1;
     public static event Action? Changed;
@@ -16,7 +19,6 @@ public static class DesktopTheme
         var contrast = new HighContrastInfo { Size = (uint)Marshal.SizeOf<HighContrastInfo>() };
         HighContrast = highContrast ?? (OperatingSystem.IsWindows() &&
             SystemParametersInfo(0x0042, contrast.Size, ref contrast, 0) && (contrast.Flags & 1) != 0);
-        var resources = Application.Current!.Resources;
         var metrics = new NonClientMetrics { Size = (uint)Marshal.SizeOf<NonClientMetrics>() };
         var hasMetrics = OperatingSystem.IsWindows() && SystemParametersInfo(0x0029, metrics.Size, ref metrics, 0);
         var dpi = OperatingSystem.IsWindowsVersionAtLeast(10) ? GetDpiForSystem() : 96;
@@ -67,10 +69,29 @@ public static class DesktopTheme
         Changed?.Invoke();
     }
 
-    public static IBrush Brush(string name) => (IBrush)Application.Current!.Resources[name]!;
+    public static IBrush Brush(string name) => (IBrush)resources[name];
+
+    internal static void ApplyResources(Control control)
+    {
+        foreach (var (key, value) in resources) control.Resources[key] = value;
+    }
+
+    internal static void ApplyWindow(Window window)
+    {
+        Start();
+        if (window.Classes.Contains("iseberg")) return;
+        window.Classes.Add("iseberg");
+        window.Styles.Add(new WorkbenchStyles());
+        ApplyResources(window);
+        void RefreshResources() => ApplyResources(window);
+        Changed += RefreshResources;
+        window.Closed += (_, _) => Changed -= RefreshResources;
+    }
 
     public static void Start()
     {
+        if (started) return;
+        started = true;
         Refresh();
         if (Application.Current?.PlatformSettings is { } platform)
             platform.ColorValuesChanged += (_, _) => Dispatcher.UIThread.Post(() => Refresh());

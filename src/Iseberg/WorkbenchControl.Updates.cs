@@ -6,18 +6,18 @@ using Iseberg.Core;
 
 namespace Iseberg;
 
-public sealed partial class MainWindow
+public sealed partial class WorkbenchControl
 {
     private static readonly HttpClient updateClient = new() { Timeout = TimeSpan.FromSeconds(10) };
     private readonly ReleaseUpdateChecker releaseUpdateChecker;
     private bool checkingForUpdates;
     private string? updateNotice;
-    public static string ApplicationVersion => typeof(MainWindow).Assembly
+    public static string ApplicationVersion => typeof(WorkbenchControl).Assembly
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0];
 
     private async Task CheckForUpdatesAsync(bool automatic)
     {
-        if (checkingForUpdates || windowClosed || closingInProgress || (automatic && !settings.CheckForUpdates)) return;
+        if (!hostingOptions.EnableUpdateChecks || checkingForUpdates || windowClosed || closingInProgress || (automatic && !settings.CheckForUpdates)) return;
         checkingForUpdates = true;
         updateNotice = null;
         RefreshState();
@@ -32,21 +32,21 @@ public sealed partial class MainWindow
             if (update is null)
             {
                 if (!automatic)
-                    await Dialogs.ChooseAsync(this, UiText.Get("Updates"), UiText.Get("NoUpdateAvailable"), UiText.Get("OK"));
+                    await Dialogs.ChooseAsync(HostWindow, UiText.Get("Updates"), UiText.Get("NoUpdateAvailable"), UiText.Get("OK"));
                 return;
             }
             var download = UiText.Get(update.HasPackage ? "DownloadUpdate" : "ViewRelease");
             var disable = UiText.Get("DisableUpdateChecks");
             var message = string.Format(UiText.Get(update.HasPackage ? "UpdateAvailable" : "UpdateWithoutPackage"),
                 update.Version, ApplicationVersion);
-            var choice = await Dialogs.ChooseAsync(this, UiText.Get("Updates"), message, download, UiText.Get("Later"), disable);
+            var choice = await Dialogs.ChooseAsync(HostWindow, UiText.Get("Updates"), message, download, UiText.Get("Later"), disable);
             if (windowClosed || closingInProgress) return;
             if (choice == disable)
             {
                 var updated = settings.Copy();
                 updated.CheckForUpdates = false;
-                await updated.SaveAsync(settingsFilePath);
                 settings = updated;
+                await SaveSettingsAsync();
             }
             else if (choice == download && !await Launcher.LaunchUriAsync(update.DownloadUri))
                 throw new InvalidOperationException(UiText.Get("UpdateDownloadFailed"));
@@ -63,7 +63,7 @@ public sealed partial class MainWindow
                 updateNotice = message;
                 RefreshState();
             }
-            else await Dialogs.ChooseAsync(this, UiText.Get("Updates"), message, UiText.Get("OK"));
+            else await Dialogs.ChooseAsync(HostWindow, UiText.Get("Updates"), message, UiText.Get("OK"));
         }
         finally
         {

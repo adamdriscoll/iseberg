@@ -4,7 +4,7 @@ using Iseberg.Core;
 
 namespace Iseberg;
 
-public sealed partial class MainWindow
+public sealed partial class WorkbenchControl
 {
     private readonly Dictionary<Guid, string?> notifiedFileVersions = [];
     private bool checkingExternalFiles;
@@ -17,23 +17,25 @@ public sealed partial class MainWindow
         }
         catch (DecoderFallbackException) when (encoding is null)
         {
-            var selection = await new EncodingWindow(new(65001, false), canReload: false, openingFile: true).ShowDialog<EncodingSelection?>(this);
+            var selection = await new EncodingWindow(new(65001, false), canReload: false, openingFile: true).ShowDialog<EncodingSelection?>(HostWindow);
             if (selection is null) return null;
             return remote ? await owner.Engine.OpenRemoteFileAsync(path, selection.Encoding) :
                 await ScriptFile.OpenAsync(path, selection.Encoding);
         }
     }
 
+    /// <summary>Reloads an owned document with optional encoding and dirty-edit confirmation. Returns false on cancellation.</summary>
     public async Task<bool> ReloadFileAsync(ScriptTab tab, ScriptEncoding? encoding = null, bool confirm = true)
     {
-        var owner = Workbench.Sessions.First(session => session.Files.Contains(tab));
+        VerifyAvailable();
+        var owner = DocumentOwner(tab);
         if (owner.Engine.State is SessionState.Running or SessionState.Debugging)
             throw new InvalidOperationException("Stop execution before reloading a script.");
         if (tab.File.Path is not { } path) throw new InvalidOperationException("Save the script before reloading it.");
         if (tab.File.IsRemote && !FileInCurrentRunspace(owner, tab))
             throw new InvalidOperationException("Reopen the remote document in its owning connection.");
         if (confirm && tab.File.IsDirty &&
-            await Dialogs.ChooseAsync(this, UiText.Get("ReloadFile"), string.Format(UiText.Get("ReloadConfirm"), tab.File.Name),
+            await Dialogs.ChooseAsync(HostWindow, UiText.Get("ReloadFile"), string.Format(UiText.Get("ReloadConfirm"), tab.File.Name),
                 UiText.Get("ReloadFile"), UiText.Get("Cancel")) != UiText.Get("ReloadFile"))
             return false;
         var text = tab.Document.Text;
@@ -46,7 +48,7 @@ public sealed partial class MainWindow
         tab.Reload(replacement);
         notifiedFileVersions.Remove(tab.RecoveryId);
         await autoSaveTask;
-        recovery.Remove(tab.RecoveryId);
+        RemoveRecovery(tab.RecoveryId);
         if (displayedFile == tab)
         {
             ScriptEditor.CaretOffset = tab.File.CaretOffset;
@@ -59,13 +61,14 @@ public sealed partial class MainWindow
     private async Task ChooseEncodingAsync()
     {
         if (displayedFile is not { } tab) return;
-        var selection = await new EncodingWindow(tab.File.EncodingChoice, tab.File.Path is not null).ShowDialog<EncodingSelection?>(this);
+        var selection = await new EncodingWindow(tab.File.EncodingChoice, tab.File.Path is not null).ShowDialog<EncodingSelection?>(HostWindow);
         if (selection is null) return;
         if (selection.Reload) await ReloadFileAsync(tab, selection.Encoding);
         else tab.File.SetEncoding(selection.Encoding);
         RefreshCaret();
     }
 
+    /// <summary>Checks open files for external content changes and offers reload/keep-edits prompts.</summary>
     public async Task CheckExternalFilesAsync()
     {
         if (checkingExternalFiles || closingInProgress || restoringWorkbench) return;
@@ -84,7 +87,7 @@ public sealed partial class MainWindow
                     if (version == tab.File.SavedVersion || notifiedFileVersions.TryGetValue(tab.RecoveryId, out var notified) && notified == version)
                         continue;
                     notifiedFileVersions[tab.RecoveryId] = version;
-                    var choice = await Dialogs.ChooseAsync(this, UiText.Get("ExternalChange"),
+                    var choice = await Dialogs.ChooseAsync(HostWindow, UiText.Get("ExternalChange"),
                         string.Format(UiText.Get("ExternalChangeHint"), path), UiText.Get("ReloadFile"), UiText.Get("KeepEdits"));
                     if (choice == UiText.Get("ReloadFile")) await ReloadFileAsync(tab, confirm: false);
                 }
@@ -102,7 +105,7 @@ public sealed partial class MainWindow
             !tab.File.IsRemote && SameScript(tab.File.Path, path);
         if (original ? version != tab.File.SavedVersion : version is not null)
         {
-            var choice = await Dialogs.ChooseAsync(this, UiText.Get("ExternalChange"),
+            var choice = await Dialogs.ChooseAsync(HostWindow, UiText.Get("ExternalChange"),
                 string.Format(UiText.Get("SaveConflictHint"), path),
                 original && version is not null ?
                     [UiText.Get("ReloadFile"), UiText.Get("OverwriteFile"), UiText.Get("Cancel")] :

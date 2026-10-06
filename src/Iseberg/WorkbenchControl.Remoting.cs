@@ -4,23 +4,25 @@ using Iseberg.Core;
 
 namespace Iseberg;
 
-public sealed partial class MainWindow
+public sealed partial class WorkbenchControl
 {
     private async Task NewRemoteSessionAsync()
     {
-        var connection = await new RemoteConnectionWindow().ShowDialog<RunspaceConnectionInfo?>(this);
+        var connection = await new RemoteConnectionWindow().ShowDialog<RunspaceConnectionInfo?>(HostWindow);
         if (connection is not null) await NewSessionAsync(connection);
     }
 
     private async Task PickRemoteFileAsync()
     {
-        var path = await Dialogs.AskAsync(this, UiText.Get("OpenRemoteFile"), UiText.Get("RemoteFilePath"));
+        var path = await Dialogs.AskAsync(HostWindow, UiText.Get("OpenRemoteFile"), UiText.Get("RemoteFilePath"));
         if (path is not null) await OpenRemoteFileAsync(path);
     }
 
+    /// <summary>Opens or selects a server-side script in the selected session's current remote runspace.</summary>
     public async Task OpenRemoteFileAsync(string path)
     {
-        if (windowClosed || closingInProgress) throw new InvalidOperationException("The workbench is closing.");
+        VerifyAvailable();
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var session = Workbench.SelectedSession ?? throw new InvalidOperationException("Select a PowerShell tab.");
         var existing = session.Files.FirstOrDefault(tab => tab.File.RemoteRunspaceId == session.Engine.RunspaceId &&
             string.Equals(tab.File.Path, path, StringComparison.Ordinal));

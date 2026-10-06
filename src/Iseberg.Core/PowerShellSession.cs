@@ -3,6 +3,7 @@ using System.Management.Automation.Runspaces;
 
 namespace Iseberg.Core;
 
+/// <summary>Owns a persistent PowerShell runspace with serialized execution, completion, and debugging.</summary>
 public sealed partial class PowerShellSession : IAsyncDisposable
 {
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -17,12 +18,16 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     private CommandErrorRequest? pendingCommandError;
     private DebuggerResumeAction resumeAction;
     private bool disposed;
+    private Task? disposalTask;
     private bool stopRequested;
     private object? iseObjectModel;
     public IseSnippetService Snippets { get; }
 
+    /// <summary>Formatted stream entries, including script errors; callbacks may occur on pipeline threads.</summary>
     public event Action<OutputEntry>? Output;
+    /// <summary>Execution-state transitions; marshal callbacks before updating a UI.</summary>
     public event Action<SessionState>? StateChanged;
+    /// <summary>Interactive input requiring a host response; do not block or re-enter the engine in the handler.</summary>
     public event Action<InputRequest>? InputRequested;
     public event Action<ShowCommandRequest>? ShowCommandRequested;
     public event Action<CommandErrorRequest>? CommandErrorRequested;
@@ -34,6 +39,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     public string Version => PSVersionInfo.PSVersion.ToString();
     public Guid LocalRunspaceId => localRunspace.InstanceId;
 
+    /// <summary>Creates an unopened local runspace with optional custom snippet storage.</summary>
     public PowerShellSession(string? snippetDirectory = null)
     {
         Snippets = new(snippetDirectory);
@@ -100,6 +106,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         finally { gate.Release(); }
     }
 
+    /// <summary>Opens the local runspace and prepares its host. Profiles are not loaded automatically.</summary>
     public async Task InitializeAsync()
     {
         await gate.WaitAsync();
@@ -131,6 +138,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         finally { gate.Release(); }
     }
 
+    /// <summary>Executes text or a named script in the persistent session. Script errors are delivered through Output.</summary>
     public Task ExecuteAsync(string script, string? filePath = null) => ExecuteAsync(script, filePath, null);
 
     public Task ExecuteMenuActionAsync(ScriptBlock action)
@@ -204,6 +212,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         }
     }
 
+    /// <summary>Requests cancellation of execution, debugger evaluation, and pending interactive host requests.</summary>
     public Task StopAsync()
     {
         lock (sync)
@@ -240,6 +249,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
     public Task SetBreakpointsAsync(string path, IEnumerable<int> lines) =>
         SetLineBreakpointsAsync(path, lines.Select(line => new BreakpointSpec(BreakpointKind.Line, path, Line: line)));
 
+    /// <summary>Completes text at a zero-based cursor offset in the current runspace or paused debugger context.</summary>
     public Task<CompletionSet> CompleteAsync(string text, int cursor, CancellationToken cancellationToken = default) =>
         State == SessionState.NestedPrompt ? NestedQueryAsync(shell =>
         {
@@ -526,7 +536,13 @@ public sealed partial class PowerShellSession : IAsyncDisposable
         StateChanged?.Invoke(state);
     }
 
-    public async ValueTask DisposeAsync()
+    /// <summary>Stops execution and releases the runspace. Repeated and concurrent calls await the same disposal.</summary>
+    public ValueTask DisposeAsync()
+    {
+        lock (sync) return new ValueTask(disposalTask ??= DisposeCoreAsync());
+    }
+
+    private async Task DisposeCoreAsync()
     {
         await StopAsync();
         await gate.WaitAsync();
@@ -537,6 +553,7 @@ public sealed partial class PowerShellSession : IAsyncDisposable
             if (pushedRunspace is not null) PopRunspace();
             if (localRunspace.Debugger is { } debugger) debugger.DebuggerStop -= OnDebuggerStop;
             await Task.Run(localRunspace.Dispose);
+            iseObjectModel = null;
             debuggerWake.Dispose();
             SetState(SessionState.Disposed);
         }

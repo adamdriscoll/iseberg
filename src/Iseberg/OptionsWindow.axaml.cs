@@ -32,6 +32,7 @@ public sealed partial class OptionsWindow : Window
         draft = settings.Copy();
         draft.Normalize();
         baseline = JsonSerializer.Serialize(draft);
+        DesktopTheme.ApplyWindow(this);
         InitializeComponent();
         Icon = AppIcon.Create();
         BuildColorTree();

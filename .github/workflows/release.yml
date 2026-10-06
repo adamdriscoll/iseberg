@@ -71,3 +71,35 @@ jobs:
             gh release create "$RELEASE_TAG" --verify-tag --title "Iseberg $RELEASE_VERSION" --generate-notes "${args[@]}"
           fi
           gh release upload "$RELEASE_TAG" artifacts/* --clobber
+  publish-nuget:
+    needs: [version, upload]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: Iseberg-${{ needs.version.outputs.version }}-nuget
+          path: nuget
+      - name: Authenticate to nuget.org with OIDC
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: Publish packages to nuget.org
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+          PACKAGE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:NUGET_API_KEY)) {
+            throw "NuGet trusted-publishing login did not return a temporary API key."
+          }
+          foreach ($package in 'Iseberg.Core', 'PoshTools.ISEBerg') {
+            dotnet nuget push "nuget/$package.$env:PACKAGE_VERSION.nupkg" --api-key $env:NUGET_API_KEY --source https://api.nuget.org/v3/index.json --skip-duplicate
+            if ($LASTEXITCODE -ne 0) { throw "Failed to publish $package to nuget.org." }
+          }

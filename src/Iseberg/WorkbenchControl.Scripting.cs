@@ -13,13 +13,13 @@ using SessionState = Iseberg.Core.SessionState;
 
 namespace Iseberg;
 
-public sealed partial class MainWindow
+public sealed partial class WorkbenchControl
 {
     private T IseInvoke<T>(Func<T> operation)
     {
         T Invoke()
         {
-            if (windowClosed || closingInProgress) throw new ObjectDisposedException(nameof(MainWindow));
+            if (windowClosed || closingInProgress) throw new ObjectDisposedException(nameof(WorkbenchControl));
             return operation();
         }
         return Dispatcher.UIThread.CheckAccess() ? Invoke() : Dispatcher.UIThread.InvokeAsync(Invoke).GetAwaiter().GetResult();
@@ -93,9 +93,9 @@ public sealed partial class MainWindow
 
     public sealed class IseObjectModel
     {
-        internal MainWindow Owner { get; }
+        internal WorkbenchControl Owner { get; }
         private readonly Dictionary<SessionModel, IsePowerShellTab> tabs = [];
-        internal IseObjectModel(MainWindow owner)
+        internal IseObjectModel(WorkbenchControl owner)
         {
             Owner = owner;
             PowerShellTabs = new(this);
@@ -140,10 +140,10 @@ public sealed partial class MainWindow
 
     public sealed class IsePowerShellTab
     {
-        internal MainWindow Owner { get; }
+        internal WorkbenchControl Owner { get; }
         internal SessionModel Model { get; }
         private readonly Dictionary<ScriptTab, IseFile> files = [];
-        internal IsePowerShellTab(MainWindow owner, SessionModel model)
+        internal IsePowerShellTab(WorkbenchControl owner, SessionModel model)
         {
             Owner = owner;
             Model = model;
@@ -246,7 +246,7 @@ public sealed partial class MainWindow
                 file.Model.File.Path is not null && tab.Model.Engine.State == SessionState.Running)
                 throw new PSNotSupportedException("Close this file through the UI after stopping execution; breakpoint/recovery work is pending.");
             // Never acquire the executing runspace's gate to close a file from inside its script.
-            tab.Owner.recovery.Remove(file.Model.RecoveryId);
+            tab.Owner.RemoveRecovery(file.Model.RecoveryId);
             tab.Model.Files.Remove(file.Model);
             tab.Forget(file.Model);
             if (tab.Model.SelectedFile == file.Model) tab.Model.SelectedFile = tab.Model.Files.LastOrDefault();

@@ -4,7 +4,7 @@ A cross-platform desktop workbench inspired by PowerShell ISE, built with Avalon
 
 ![Iseberg showing a syntax-highlighted PowerShell script, console output, and the Commands pane.](docs/images/iseberg.png)
 
-[Get started](#getting-started) | [Keyboard shortcuts](#keyboard-shortcuts) | [User guide](docs/user-guide.md) | [Development guide](docs/development.md)
+[Get started](#getting-started) | [Keyboard shortcuts](#keyboard-shortcuts) | [User guide](docs/user-guide.md) | [NuGet hosting](docs/nuget-hosting.md) | [Development guide](docs/development.md)
 
 ## What you can do
 
@@ -89,6 +89,7 @@ On macOS, Command is also accepted for workbench shortcuts. See the [full shortc
 | File encodings, session restoration, recovery, and printing | [Files and sessions](docs/user-guide.md#files-sessions-and-printing) / [Autosave](docs/user-guide.md#autosave) |
 | Themes, preferences, and accessibility | [Options and accessibility](docs/user-guide.md#options-and-accessibility) |
 | Building, testing, publishing, and VS Code setup | [Development guide](docs/development.md) |
+| Embedding the workbench or hosting PowerShell through NuGet | [NuGet hosting guide](docs/nuget-hosting.md) |
 | Module responsibilities and design decisions | [Architecture overview](docs/architecture.md) |
 
 ## Development

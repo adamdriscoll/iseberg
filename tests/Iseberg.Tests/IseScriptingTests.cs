@@ -193,8 +193,20 @@ public sealed class IseScriptingTests
             var menu = window.FindControl<MenuItem>("AddonsMenu")!.Items.OfType<MenuItem>()
                 .Single(item => item.Header as string == "Wait");
             await WaitFor(() => menu.IsEnabled);
-            menu.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-            await WaitFor(() => session.Engine.State == SessionState.Running && !menu.IsEnabled && Contains(session, "menu-started"));
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void Capture(OutputEntry entry)
+            {
+                if (entry.Kind != OutputKind.Command && entry.Text.Contains("menu-started", StringComparison.Ordinal))
+                    started.TrySetResult();
+            }
+            session.Engine.Output += Capture;
+            try
+            {
+                menu.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                await started.Task.WaitAsync(TestTimeouts.PowerShellStartup);
+                await WaitFor(() => session.Engine.State == SessionState.Running && !menu.IsEnabled);
+            }
+            finally { session.Engine.Output -= Capture; }
             await session.Engine.StopAsync();
             await WaitFor(() => session.Engine.State == SessionState.Ready && menu.IsEnabled);
             var output = await Execute(session, "$preservedMenuValue");
