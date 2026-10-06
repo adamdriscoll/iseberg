@@ -52,6 +52,8 @@ dotnet publish src/Iseberg -c Release -r win-x64 --self-contained true -o ./publ
 
 Use `linux-x64`, `linux-arm64`, `osx-x64`, or `osx-arm64` as appropriate. The full distribution must remain untrimmed.
 
+Windows full builds and publishes copy `packaging/pwsh_ise.cmd` beside `Iseberg.exe`, so both ZIP packaging paths and the MSI include the same command-line launcher. The MSI appends the installation folder to the system `PATH` and removes that entry on uninstall. The launcher is excluded from compact and non-Windows publishes.
+
 ### Platform packages
 
 To create distribution packages, use PowerShell 7 on the corresponding OS:
