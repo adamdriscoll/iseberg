@@ -148,7 +148,7 @@ public sealed class UpdateDesktopTests
             Dispatcher.UIThread.RunJobs();
             Assert.Contains("Offline", window.FindControl<TextBlock>("StatusText")!.Text);
             Assert.Empty(window.OwnedWindows);
-            Assert.True(window.FindControl<AccessibleTextEditor>("ScriptEditor")!.IsEnabled);
+            Assert.True(window.FindEditor("ScriptEditor")!.IsEnabled);
         }
         finally
         {

@@ -1,0 +1,24 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Iseberg.Editor.EditorStyles">
+  <Styles.Resources>
+    <ResourceDictionary>
+      <x:Double x:Key="SearchPanelFontSize">14</x:Double>
+      <FontFamily x:Key="SearchPanelFontFamily">Default</FontFamily>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Default">
+          <SolidColorBrush x:Key="CompletionToolTipBackground" Color="{DynamicResource SystemChromeMediumColor}" />
+          <SolidColorBrush x:Key="CompletionToolTipForeground" Color="{DynamicResource SystemBaseHighColor}" />
+          <SolidColorBrush x:Key="CompletionToolTipBorderBrush" Color="{DynamicResource SystemBaseLowColor}" />
+          <Thickness x:Key="CompletionToolTipBorderThickness">1</Thickness>
+          <SolidColorBrush x:Key="SearchPanelBackgroundBrush" Color="{DynamicResource SystemChromeMediumColor}" />
+          <SolidColorBrush x:Key="SearchPanelBorderBrush" Color="{DynamicResource SystemBaseLowColor}" />
+          <SolidColorBrush x:Key="TextAreaSelectionBrush" Color="{DynamicResource SystemAccentColor}" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://AvaloniaEdit/Themes/Base.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+</Styles>

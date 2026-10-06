@@ -75,7 +75,7 @@ public sealed partial class WorkbenchControl
             session.Console.HidePrompt();
             if (displayedSession == session)
             {
-                completion?.Close();
+                Completion?.Close();
                 SetCommandModules();
                 RenderDebugger();
                 RefreshState();

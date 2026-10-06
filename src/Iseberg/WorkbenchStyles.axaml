@@ -1,8 +1,9 @@
 <Styles xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:editor="using:Iseberg.Editor"
              x:Class="Iseberg.WorkbenchStyles">
-    <SimpleTheme />
-    <StyleInclude Source="avares://AvaloniaEdit/Themes/Simple/AvaloniaEdit.xaml" />
+    <FluentTheme />
+    <editor:EditorStyles />
     <Style Selector="Window">
       <Setter Property="FontFamily" Value="{DynamicResource DesktopFontFamily}" />
       <Setter Property="FontSize" Value="{DynamicResource DesktopFontSize}" />

@@ -99,7 +99,7 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:NUGET_API_KEY)) {
             throw "NuGet trusted-publishing login did not return a temporary API key."
           }
-          foreach ($package in 'PoshTools.Iseberg.Core', 'PoshTools.ISEBerg') {
+          foreach ($package in 'PoshTools.Iseberg.Core', 'PoshTools.Iseberg.Editor', 'PoshTools.ISEBerg') {
             dotnet nuget push "nuget/$package.$env:PACKAGE_VERSION.nupkg" --api-key $env:NUGET_API_KEY --source https://api.nuget.org/v3/index.json --skip-duplicate
             if ($LASTEXITCODE -ne 0) { throw "Failed to publish $package to nuget.org." }
           }

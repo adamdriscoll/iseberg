@@ -478,7 +478,7 @@ public sealed class CommandFormTests
             window.Workbench.Sessions.Add(session);
             window.Workbench.SelectedSession = session;
             window.Show();
-            var editor = window.FindControl<AvaloniaEdit.TextEditor>("ScriptEditor")!;
+            var editor = window.FindEditor("ScriptEditor")!;
             editor.CaretOffset = editor.Text.Length - 2;
             editor.TextArea.Focus();
             var key = new KeyEventArgs

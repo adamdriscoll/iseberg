@@ -15,7 +15,6 @@ using AvaloniaEdit;
 using AvaloniaEdit.CodeCompletion;
 using AvaloniaEdit.Document;
 using AvaloniaEdit.Folding;
-using AvaloniaEdit.Search;
 using Iseberg.Core;
 using SessionState = Iseberg.Core.SessionState;
 
@@ -26,7 +25,6 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
     private readonly string[] startupFiles;
     private readonly string? settingsFilePath;
     private readonly DispatcherTimer outputTimer;
-    private readonly DispatcherTimer analysisTimer;
     private readonly DispatcherTimer autoSaveTimer;
     private readonly DispatcherTimer completionTimer;
     private readonly DispatcherTimer persistenceTimer;
@@ -37,12 +35,18 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
     private Control? editTarget;
     private readonly PowerShellColorizer colorizer = new();
     private readonly BreakpointMargin breakpointMargin;
-    private FoldingManager folding;
-    private readonly SearchPanel search;
+    private FoldingManager? folding;
+    private readonly WorkbenchAnalysisProvider scriptAnalysis = new();
+    private AccessibleTextEditor ScriptEditor => ScriptEditorControl.TextEditor;
     private UserSettings settings = new();
     private SessionModel? displayedSession;
     private ScriptTab? displayedFile;
-    private CompletionWindow? completion;
+    private CompletionWindow? consoleCompletion;
+    private CompletionWindow? Completion
+    {
+        get => consoleCompletion ?? ScriptEditorControl.CompletionPopup;
+        set => consoleCompletion = value;
+    }
     private int fileNumber;
     private int sessionNumber;
     private bool initialized;
@@ -97,6 +101,12 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         DesktopTheme.ApplyResources(this);
         Scripting = new(this);
         DataContext = Workbench;
+        ScriptEditor.FontFamily = new FontFamily("Consolas, Cascadia Code, DejaVu Sans Mono, Menlo, monospace");
+        ScriptEditor.FontSize = 16;
+        ScriptEditorControl.AnalysisProvider = scriptAnalysis;
+        ScriptEditorControl.AnalysisChanged += (_, _) => ApplyScriptAnalysis();
+        ScriptEditorControl.CompletionProvider = new WorkbenchCompletionProvider(this);
+        ScriptEditorControl.ErrorOccurred += async (_, error) => await ReportErrorAsync(error.Operation, error.Exception);
         CommandForm.CommandChanged += RefreshState;
         Workbench.Sessions.CollectionChanged += (_, e) =>
         {
@@ -156,11 +166,18 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         ScriptEditor.PropertyChanged += (_, e) => { if (e.Property == TextEditor.IsReadOnlyProperty) UpdateMenuState(); };
         ConsoleEditor.PropertyChanged += (_, e) => { if (e.Property == TextEditor.IsReadOnlyProperty) UpdateMenuState(); };
         folding = FoldingManager.Install(ScriptEditor.TextArea);
-        search = SearchPanel.Install(ScriptEditor);
+        ScriptEditorControl.AttachedToVisualTree += (_, _) =>
+        {
+            folding ??= FoldingManager.Install(ScriptEditor.TextArea);
+            ApplyScriptAnalysis();
+        };
+        ScriptEditorControl.DetachedFromVisualTree += (_, _) =>
+        {
+            if (folding is not null) FoldingManager.Uninstall(folding);
+            folding = null;
+        };
         outputTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
         outputTimer.Tick += (_, _) => FlushOutput();
-        analysisTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
-        analysisTimer.Tick += (_, _) => { analysisTimer.Stop(); AnalyzeScript(); };
         autoSaveTimer = new DispatcherTimer();
         autoSaveTimer.Tick += (_, _) =>
         {
@@ -181,7 +198,7 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         DetachedFromVisualTree += (_, _) => DetachHostWindow();
         ScriptEditor.TextArea.AddHandler(KeyDownEvent, (_, e) =>
         {
-            if (e.Key == Key.Enter && !settings.ScriptCompletionOnEnter) completion?.Close();
+            if (e.Key == Key.Enter && !settings.ScriptCompletionOnEnter) ScriptEditorControl.CloseCompletion();
         }, RoutingStrategies.Tunnel);
         completionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
         completionTimer.Tick += async (_, _) =>
@@ -193,7 +210,7 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         ScriptEditor.TextChanged += (_, _) =>
         {
             if (windowClosed) return;
-            analysisTimer.Stop(); analysisTimer.Start(); RefreshCaret();
+            RefreshCaret();
         };
         ScriptEditor.TextArea.Caret.PositionChanged += (_, _) => { completionTimer.Stop(); RefreshCaret(); };
         ScriptEditor.TextArea.TextEntered += (_, e) => ScheduleCompletion(ScriptEditor, e.Text);
@@ -201,9 +218,9 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         ConsoleEditor.TextArea.Caret.PositionChanged += (_, _) => { completionTimer.Stop(); RefreshCaret(); };
         ConsoleEditor.TextArea.AddHandler(KeyDownEvent, (_, e) =>
         {
-            if (e.Key == Key.Enter && !settings.ConsoleCompletionOnEnter) completion?.Close();
+            if (e.Key == Key.Enter && !settings.ConsoleCompletionOnEnter) Completion?.Close();
         }, RoutingStrategies.Tunnel);
-        AddHandler(GotFocusEvent, (_, e) =>
+        AddHandler(InputElement.GotFocusEvent, (_, e) =>
         {
             if (e.Source is not Control source) return;
             var input = source.GetVisualAncestors().Prepend(source).FirstOrDefault(v => v is TextBox or TextEditor);
@@ -343,7 +360,7 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
     {
         var next = Workbench.SelectedSession;
         if (displayedSession == next) return;
-        completion?.Close();
+        Completion?.Close();
         completionTimer.Stop();
         if (displayedSession is not null)
             displayedSession.ConsoleCaretOffset = ConsoleEditor.CaretOffset;
@@ -369,11 +386,12 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         if (next == displayedFile) return;
         if (displayedFile is not null) displayedFile.File.CaretOffset = ScriptEditor.CaretOffset;
         displayedFile = next;
-        completion?.Close();
-        FoldingManager.Uninstall(folding);
-        ScriptEditor.Document = next?.Document ?? new TextDocument();
-        folding = FoldingManager.Install(ScriptEditor.TextArea);
-        ScriptEditor.CaretOffset = Math.Min(next?.File.CaretOffset ?? 0, ScriptEditor.Document.TextLength);
+        Completion?.Close();
+        if (folding is not null) FoldingManager.Uninstall(folding);
+        folding = null;
+        ScriptEditorControl.Document = next?.Document ?? new TextDocument();
+        if (ScriptEditor.Document is not null) folding = FoldingManager.Install(ScriptEditor.TextArea);
+        ScriptEditorControl.CaretOffset = Math.Min(next?.File.CaretOffset ?? 0, ScriptEditorControl.Document.TextLength);
         AnalyzeScript();
         RefreshCaret();
         RefreshState();
@@ -385,7 +403,7 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         {
             if (session.FlushOutput() && session == displayedSession)
             {
-                completion?.Close();
+                if (Completion?.TextArea == ConsoleEditor.TextArea) Completion.Close();
                 ConsoleEditor.TextArea.TextView.Redraw();
                 ConsoleEditor.ScrollToEnd();
             }
@@ -393,15 +411,28 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         RefreshState();
     }
 
-    private void AnalyzeScript()
+    private async void AnalyzeScript()
     {
-        colorizer.Analysis = EditorAnalysis.Analyze(ScriptEditor.Text);
+        if (!windowClosed)
+        {
+            try { await GuardAsync(async () => await ScriptEditorControl.AnalyzeAsync()); }
+            catch (OperationCanceledException) { }
+        }
+    }
+
+    private void ApplyScriptAnalysis()
+    {
+        if (windowClosed) return;
+        var result = ScriptEditorControl.Analysis;
+        colorizer.Analysis = result.State == EditorAnalysisState.Available && scriptAnalysis.Version == result.Version
+            ? scriptAnalysis.Parsed : null;
         ScriptEditor.TextArea.TextView.Redraw();
         breakpointMargin.InvalidateVisual();
-        folding.UpdateFoldings(settings.ShowOutlining ? colorizer.Analysis.Folds.Select(f => new NewFolding(f.Start, f.End)) : [], -1);
-        Diagnostics.IsVisible = colorizer.Analysis.Errors.Length > 0;
-        Diagnostics.Text = string.Join("  |  ", colorizer.Analysis.Errors.Take(3).Select(
-            error => $"Line {error.Extent.StartLineNumber}: {error.Message}"));
+        folding?.UpdateFoldings(settings.ShowOutlining && colorizer.Analysis is { } parsed
+            ? parsed.Folds.Select(f => new NewFolding(f.Start, f.End)) : [], -1);
+        Diagnostics.IsVisible = !result.Diagnostics.IsEmpty;
+        Diagnostics.Text = string.Join("  |  ", result.Diagnostics.Take(3).Select(
+            diagnostic => $"Line {ScriptEditorControl.Document.GetLineByOffset(diagnostic.Span.Start).LineNumber}: {diagnostic.Message}"));
     }
 
     private void RefreshCaret()
@@ -433,11 +464,11 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         var canEvaluate = (paused || nested) && displayedSession?.Evaluating != true;
         CallStackList.IsEnabled = paused && canEvaluate;
         ConsoleEditor.IsReadOnly = closingInProgress || !(ready || canEvaluate);
-        ScriptEditor.IsReadOnly = closingInProgress || paused;
+        ScriptEditorControl.IsReadOnly = closingInProgress || paused;
         if (!ready && !canEvaluate)
         {
             completionNotice = null;
-            if (completion?.TextArea == ConsoleEditor.TextArea) completion.Close();
+            if (Completion?.TextArea == ConsoleEditor.TextArea) Completion.Close();
             displayedSession?.Console.HidePrompt();
         }
         else displayedSession?.FlushOutput();
@@ -494,7 +525,7 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
             case "Copy": if (editTarget is TextBox copyBox) copyBox.Copy(); else (editTarget as TextEditor ?? ScriptEditor).Copy(); break;
             case "Paste": if (editTarget is TextBox pasteBox) pasteBox.Paste(); else (editTarget as TextEditor ?? ScriptEditor).Paste(); break;
             case "SelectAll": if (editTarget is TextBox selectBox) selectBox.SelectAll(); else (editTarget as TextEditor ?? ScriptEditor).SelectAll(); break;
-            case "Find": search.Open(); search.Reactivate(); break;
+            case "Find": ScriptEditorControl.ShowFind(); break;
             case "Replace": await ReplaceAsync(); break;
             case "GoToLine": await GoToLineAsync(); break;
             case "MatchBrace": case "SelectBrace": NavigateBrace(action == "SelectBrace"); break;
@@ -585,8 +616,8 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
             case "ZoomIn": ZoomSlider.Value = Math.Min(400, ZoomSlider.Value + 5); break;
             case "ZoomOut": ZoomSlider.Value = Math.Max(20, ZoomSlider.Value - 5); break;
             case "Fold" when settings.ShowOutlining:
-                var collapse = folding.AllFoldings.Any(f => !f.IsFolded);
-                foreach (var fold in folding.AllFoldings) fold.IsFolded = collapse;
+                var collapse = folding?.AllFoldings.Any(f => !f.IsFolded) == true;
+                foreach (var fold in folding?.AllFoldings ?? []) fold.IsFolded = collapse;
                 break;
             case "FocusScript": ScriptEditor.TextArea.Focus(); break;
             case "FocusConsole": if (settings.Layout == "Maximized") { settings.Layout = "Top"; ApplySettings(); } FocusConsoleInput(); break;
@@ -814,8 +845,7 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         if (session is null || file is null) return;
         if (selection)
         {
-            var text = ScriptEditor.SelectedText;
-            if (text.Length == 0) text = ScriptEditor.Document.GetText(ScriptEditor.Document.GetLineByNumber(ScriptEditor.TextArea.Caret.Line));
+            var text = ScriptEditorControl.CaptureText(EditorTextScope.SelectionOrCurrentLine).Text;
             if (session.Engine.State == SessionState.Debugging) await EvaluateConsoleAsync(session, text);
             else if (session.Engine.IsNestedPromptActive) await EvaluateNestedConsoleAsync(session, text);
             else await session.Engine.ExecuteAsync(text);
@@ -860,10 +890,10 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         if (e.Handled) return;
         if (displayedSession is not { } session || session.Evaluating ||
             session.Engine.State is not (SessionState.Ready or SessionState.Debugging or SessionState.NestedPrompt)) return;
-        if (completion is not null && (e.Key == Key.Tab || e.Key == Key.Enter && settings.ConsoleCompletionOnEnter)) return;
+        if (Completion is not null && (e.Key == Key.Tab || e.Key == Key.Enter && settings.ConsoleCompletionOnEnter)) return;
         if (e.Key == Key.Escape)
         {
-            if (completion is not null) { completion.Close(); e.Handled = true; return; }
+            if (Completion is not null) { Completion.Close(); e.Handled = true; return; }
             session.Input = "";
             session.Completion = null;
             FocusConsoleInput();
@@ -891,7 +921,7 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
             if (string.IsNullOrWhiteSpace(text)) return;
             session.Input = "";
             session.Console.HidePrompt();
-            completion?.Close();
+            Completion?.Close();
             completionTimer.Stop();
             if (session.History.Count == 0 || session.History[^1] != text) session.History.Add(text);
             if (session.History.Count > 1000) session.History.RemoveAt(0);
@@ -912,7 +942,7 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
             });
         }
         else if (e.Key is Key.Up or Key.Down && e.KeyModifiers == KeyModifiers.None && !session.Input.Contains('\n') &&
-                 ConsoleEditor.CaretOffset >= session.Console.InputStart && completion is null)
+                 ConsoleEditor.CaretOffset >= session.Console.InputStart && Completion is null)
         {
             e.Handled = true;
             if (session.HistoryIndex == session.History.Count) session.DraftInput = session.Input;
@@ -1112,7 +1142,7 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
                 "Paste" => !box.IsReadOnly && box.IsEffectivelyEnabled,
                 _ => false
             };
-        if (target is TextEditor editor)
+        if (target is TextEditor { Document: { } } editor)
             return action switch
             {
                 "Undo" => !editor.IsReadOnly && editor.Document.UndoStack.CanUndo,
@@ -1191,21 +1221,22 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         if (editor.CaretOffset < start) return;
         var filter = EditorAnalysis.CompletionFilter(editor.Document.GetText(start, editor.Document.TextLength - start), editor.CaretOffset - start);
         if (filter is null) return;
-        completion?.Close();
+        Completion?.Close();
         automaticCompletionEditor = editor;
         automaticCompletionFilter = filter;
         completionTimer.Start();
     }
 
-    private async Task<CompletionSet?> GetCompletionAsync(SessionModel session, string text, int caret)
+    private async Task<CompletionSet?> GetCompletionAsync(SessionModel session, string text, int caret, CancellationToken cancellationToken = default)
     {
         completionNotice = null;
         completionPending = true;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(settings.IntelliSenseTimeoutSeconds));
-        try { return await session.Engine.CompleteAsync(text, caret, timeout.Token); }
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, cancellationToken);
+        try { return await session.Engine.CompleteAsync(text, caret, cancellation.Token); }
         catch (InvalidOperationException) when (session.Engine.State != SessionState.Ready && !session.Engine.IsDebuggerPaused && !session.Engine.IsNestedPromptActive)
         { return null; }
-        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             if (displayedSession == session)
             {
@@ -1221,8 +1252,15 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
     private async Task RequestCompletionAsync(TextEditor editor, IReadOnlySet<CompletionResultType>? filter = null)
     {
         if (displayedSession is not { } session || (session.Engine.State != SessionState.Ready && !session.Engine.IsDebuggerPaused && !session.Engine.IsNestedPromptActive) ||
-            session.Evaluating || completion is not null || completionPending ||
+            session.Evaluating || Completion is not null || completionPending ||
             editor.IsReadOnly && !(editor == ScriptEditor && session.Engine.IsDebuggerPaused)) return;
+        if (editor == ScriptEditor)
+        {
+            scriptCompletionFilter = filter;
+            try { await ScriptEditorControl.ShowCompletionAsync(windowCancellation.Token); }
+            catch (OperationCanceledException) { }
+            return;
+        }
         var revision = session.DebugRevisionCounter;
         var document = editor.Document;
         var start = editor == ConsoleEditor ? session.Console.InputStart : 0;
@@ -1235,22 +1273,11 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
             document.Text != snapshot || editor.CaretOffset != start + caret || editTarget is not null && editTarget != editor) return;
         var matches = results.Matches.Where(m => filter is null || filter.Contains(m.ResultType)).ToArray();
         if (matches.Length == 0) return;
-        var popup = new CompletionWindow(editor.TextArea)
-        {
-            StartOffset = start + results.Start,
-            EndOffset = start + results.Start + results.Length,
-            CloseWhenCaretAtBeginning = false
-        };
-        completion = popup;
-        foreach (var match in matches) popup.CompletionList.CompletionData.Add(new PowerShellCompletion(match));
-        popup.AddHandler(KeyDownEvent, (_, e) =>
-        {
-            if (e.Key == Key.Enter && !(editor == ScriptEditor ? settings.ScriptCompletionOnEnter : settings.ConsoleCompletionOnEnter))
-            { popup.Close(); e.Handled = true; }
-        }, RoutingStrategies.Tunnel);
-        popup.Closed += (_, _) => { if (completion == popup) completion = null; };
-        popup.Show();
-        popup.CompletionList.SelectItem(text.Substring(results.Start, caret - results.Start));
+        var popup = EditorCompletionPopup.Show(editor.TextArea, new(start + results.Start, results.Length),
+            matches.Select(match => new PowerShellCompletion(match)),
+            settings.ConsoleCompletionOnEnter, text.Substring(results.Start, caret - results.Start));
+        Completion = popup;
+        popup.Closed += (_, _) => { if (Completion == popup) Completion = null; };
         if (filter?.Contains(CompletionResultType.ProviderContainer) == true && results.Length == 0)
             popup.CompletionList.SelectedItem = null;
     }
@@ -1260,8 +1287,9 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         CapturePaneGeometry();
         ScriptEditor.ShowLineNumbers = settings.ShowLineNumbers;
         ScriptEditor.WordWrap = settings.WordWrap;
-        if (!settings.ScriptIntelliSense) completion?.Close();
-        if (!settings.ConsoleIntelliSense && completion?.TextArea == ConsoleEditor.TextArea) completion.Close();
+        ScriptEditorControl.CompletionAcceptsEnter = settings.ScriptCompletionOnEnter;
+        if (!settings.ScriptIntelliSense) Completion?.Close();
+        if (!settings.ConsoleIntelliSense && Completion?.TextArea == ConsoleEditor.TextArea) Completion.Close();
         WorkbenchMenu.IsVisible = hostingOptions.ShowMenu;
         WorkbenchToolbar.IsVisible = hostingOptions.ShowToolbar && settings.ShowToolbar;
         WorkbenchStatusBar.IsVisible = hostingOptions.ShowStatusBar;
@@ -1579,7 +1607,7 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
         var relativeCaret = editor.CaretOffset - start;
         var atOpen = relativeCaret == braces.Open || relativeCaret != braces.Close && relativeCaret - 1 == braces.Open;
         if (editor == ScriptEditor)
-            foreach (var fold in folding.AllFoldings.Where(f => f.StartOffset <= start + braces.Close && f.EndOffset >= start + braces.Open))
+            foreach (var fold in (folding?.AllFoldings ?? []).Where(f => f.StartOffset <= start + braces.Close && f.EndOffset >= start + braces.Open))
                 fold.IsFolded = false;
         if (select) editor.Select(start + braces.Open, braces.Close - braces.Open + 1);
         else editor.CaretOffset = start + (atOpen ? braces.Close : braces.Open);
@@ -1700,7 +1728,7 @@ public sealed partial class WorkbenchControl : UserControl, IAsyncDisposable
     private async Task OptionsAsync()
     {
         completionTimer.Stop();
-        completion?.Close();
+        Completion?.Close();
         var previousFocus = editTarget;
         var dialog = new OptionsWindow(settings, async updated =>
         {

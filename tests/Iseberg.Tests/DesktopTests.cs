@@ -161,7 +161,7 @@ public sealed class DesktopTests
             Assert.Contains(session.DebugSnapshot!.Variables, value => value.Name == "$remoteUiValue" && value.Value == "21");
             Assert.Contains(session.Engine.RemoteComputerName!, window.FindControl<TextBlock>("DebuggerScope")!.Text);
             Assert.True(window.FindControl<Border>("DebuggerPane")!.IsVisible);
-            Assert.True(window.FindControl<TextEditor>("ScriptEditor")!.IsReadOnly);
+            Assert.True(window.FindEditor("ScriptEditor")!.IsReadOnly);
             session.FlushOutput();
             Assert.Contains(session.Engine.DebugPrompt, session.ConsoleDocument.Text);
             session.Engine.Resume(System.Management.Automation.DebuggerResumeAction.Continue);
@@ -198,7 +198,7 @@ public sealed class DesktopTests
         {
             if (entry.Kind == OutputKind.Output && entry.Text.Contains("console-key-marker")) output.TrySetResult();
         };
-        var input = window.FindControl<TextEditor>("ConsoleEditor")!;
+        var input = window.FindEditor("ConsoleEditor")!;
         session.Input = "Write-Output 'console-key-marker'";
         input.CaretOffset = input.Document.TextLength;
         var key = new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter };
@@ -240,7 +240,7 @@ public sealed class DesktopTests
             window.Workbench.Sessions.Add(session);
             window.Workbench.SelectedSession = session;
             Layout(window);
-            var editor = window.FindControl<TextEditor>("ScriptEditor")!;
+            var editor = window.FindEditor("ScriptEditor")!;
             var gutter = editor.TextArea.LeftMargins.OfType<Control>().SingleOrDefault(margin => margin.Name == "BreakpointGutter");
             Assert.NotNull(gutter);
             Assert.Contains(gutter, editor.TextArea.LeftMargins);
@@ -292,7 +292,7 @@ public sealed class DesktopTests
             window.Workbench.Sessions.Add(session);
             window.Workbench.SelectedSession = session;
             Layout(window);
-            var view = window.FindControl<TextEditor>("ScriptEditor")!.TextArea.TextView;
+            var view = window.FindEditor("ScriptEditor")!.TextArea.TextView;
             view.EnsureVisualLines();
             var drawing = new DrawingGroup();
             using (var context = drawing.Open())
@@ -346,7 +346,7 @@ public sealed class DesktopTests
             window.Workbench.Sessions.Add(session);
             window.Workbench.SelectedSession = session;
             Layout(window);
-            var editor = window.FindControl<TextEditor>("ScriptEditor")!;
+            var editor = window.FindEditor("ScriptEditor")!;
             var gutter = editor.TextArea.LeftMargins.OfType<BreakpointMargin>().Single();
             editor.ScrollToLine(60);
             Layout(window);
@@ -397,7 +397,7 @@ public sealed class DesktopTests
             window.Workbench.Sessions.Add(session);
             window.Workbench.SelectedSession = session;
             Layout(window);
-            var editor = window.FindControl<TextEditor>("ScriptEditor")!;
+            var editor = window.FindEditor("ScriptEditor")!;
             var gutter = editor.TextArea.LeftMargins.OfType<BreakpointMargin>().Single();
             var drawing = new DrawingGroup();
             using (var context = drawing.Open()) gutter.Render(context);
@@ -481,9 +481,9 @@ public sealed class DesktopTests
             var execution = session.Engine.ExecuteAsync("", path);
             await WaitForUiAsync(() => session.DebugSnapshot is not null);
             Assert.Equal(3, file.File.Breakpoints.Single());
-            var console = window.FindControl<TextEditor>("ConsoleEditor")!;
+            var console = window.FindEditor("ConsoleEditor")!;
             Assert.False(console.IsReadOnly);
-            Assert.True(window.FindControl<TextEditor>("ScriptEditor")!.IsReadOnly);
+            Assert.True(window.FindEditor("ScriptEditor")!.IsReadOnly);
             Assert.True(window.FindControl<Border>("DebuggerPane")!.IsVisible);
             Assert.Contains(window.FindControl<TreeView>("VariablesList")!.Items.OfType<TreeViewItem>(), item => item.Tag is DebugValue { Name: "$localValue", Value: "21" });
             Assert.Equal("42", ((DebugValue)window.FindControl<TreeView>("WatchesList")!.Items.OfType<TreeViewItem>().Single().Tag!).Value);
@@ -505,7 +505,7 @@ public sealed class DesktopTests
 
             session.Engine.Resume(System.Management.Automation.DebuggerResumeAction.Continue);
             await execution.WaitAsync(TimeSpan.FromSeconds(10));
-            await WaitForUiAsync(() => session.DebugLocation is null && !window.FindControl<TextEditor>("ScriptEditor")!.IsReadOnly);
+            await WaitForUiAsync(() => session.DebugLocation is null && !window.FindEditor("ScriptEditor")!.IsReadOnly);
             Assert.Empty(window.FindControl<TreeView>("VariablesList")!.Items);
             session.FlushOutput();
             Assert.Contains("result=41", session.ConsoleDocument.Text);
@@ -595,7 +595,7 @@ public sealed class DesktopTests
             Assert.Contains("stopped frame", window.FindControl<TextBlock>("DebuggerScope")!.Text);
             Assert.DoesNotContain(session.DebugSnapshot!.Variables, value => value.Name == "$innerOnly");
 
-            var console = window.FindControl<TextEditor>("ConsoleEditor")!;
+            var console = window.FindEditor("ConsoleEditor")!;
             session.Input = "$innerO";
             console.CaretOffset = console.Document.TextLength;
             console.TextArea.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Tab });
@@ -688,7 +688,7 @@ public sealed class DesktopTests
             Layout(window);
             var execution = session.Engine.ExecuteAsync("", path);
             var request = await input.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            var editor = window.FindControl<TextEditor>("ScriptEditor")!;
+            var editor = window.FindEditor("ScriptEditor")!;
             if (gutterClick)
             {
                 var gutter = editor.TextArea.LeftMargins.OfType<BreakpointMargin>().Single();
@@ -727,11 +727,11 @@ public sealed class DesktopTests
     public void WorkbenchConstructsAndHasIseLayout()
     {
         var window = new MainWindow([], initializeOnOpen: false);
-        Assert.NotNull(window.FindControl<TextEditor>("ScriptEditor"));
-        Assert.NotNull(window.FindControl<TextEditor>("ConsoleEditor"));
+        Assert.NotNull(window.FindEditor("ScriptEditor"));
+        Assert.NotNull(window.FindEditor("ConsoleEditor"));
         Assert.True(window.FindControl<Border>("CommandsPane")!.IsVisible);
-        Assert.Equal(12, window.FindControl<TextEditor>("ScriptEditor")!.FontSize);
-        Assert.False(window.FindControl<TextEditor>("ConsoleEditor")!.Options.AllowScrollBelowDocument);
+        Assert.Equal(12, window.FindEditor("ScriptEditor")!.FontSize);
+        Assert.False(window.FindEditor("ConsoleEditor")!.Options.AllowScrollBelowDocument);
     }
 
     [AvaloniaTheory]
@@ -852,25 +852,25 @@ public sealed class DesktopTests
             var panes = window.FindControl<Grid>("OuterGrid")!;
             var singleSessionTop = panes.Bounds.Y;
             Assert.False(tabs.IsVisible);
-            Assert.Same(firstFile.Document, window.FindControl<TextEditor>("ScriptEditor")!.Document);
+            Assert.Same(firstFile.Document, window.FindEditor("ScriptEditor")!.Document);
             window.FindControl<TabStrip>("FileTabs")!.SelectedItem = otherFile;
             Layout(window);
             Assert.Same(otherFile, first.SelectedFile);
-            Assert.Same(otherFile.Document, window.FindControl<TextEditor>("ScriptEditor")!.Document);
+            Assert.Same(otherFile.Document, window.FindEditor("ScriptEditor")!.Document);
 
             window.Workbench.Sessions.Add(second);
             window.Workbench.SelectedSession = second;
             Layout(window);
             Assert.True(tabs.IsVisible);
             Assert.True(panes.Bounds.Y > singleSessionTop);
-            Assert.Same(secondFile.Document, window.FindControl<TextEditor>("ScriptEditor")!.Document);
+            Assert.Same(secondFile.Document, window.FindEditor("ScriptEditor")!.Document);
 
             window.Workbench.SelectedSession = first;
             window.Workbench.Sessions.Remove(second);
             Layout(window);
             Assert.False(tabs.IsVisible);
             Assert.Equal(singleSessionTop, panes.Bounds.Y);
-            Assert.Same(otherFile.Document, window.FindControl<TextEditor>("ScriptEditor")!.Document);
+            Assert.Same(otherFile.Document, window.FindEditor("ScriptEditor")!.Document);
         }
         finally
         {
@@ -897,7 +897,7 @@ public sealed class DesktopTests
         });
         Layout(window);
         Layout(window);
-        var input = window.FindControl<TextEditor>("ConsoleEditor")!;
+        var input = window.FindEditor("ConsoleEditor")!;
         Assert.True(input.WordWrap);
         Assert.True(session.Console.HasPrompt);
         Assert.Equal(session.Engine.Prompt.Length, session.Console.InputStart - session.Console.TranscriptEnd);
@@ -940,7 +940,7 @@ public sealed class DesktopTests
         Layout(window);
         session.SelectedFile = second;
         Layout(window);
-        Assert.Equal(second.Document, window.FindControl<TextEditor>("ScriptEditor")!.Document);
+        Assert.Equal(second.Document, window.FindEditor("ScriptEditor")!.Document);
         window.Close();
     }
 

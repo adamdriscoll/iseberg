@@ -223,7 +223,7 @@ public sealed class CommandHelpTests
             var help = window.OwnedWindows.OfType<CommandHelpWindow>().Single();
             Layout(help);
             Assert.Equal("Get-Widget Help", help.Title);
-            Assert.True(help.FindControl<TextEditor>("HelpContent")!.IsReadOnly);
+            Assert.True(help.FindEditor("HelpContent")!.IsReadOnly);
             Assert.NotNull(help.FindControl<TextBox>("HelpFind"));
             Assert.NotNull(help.FindControl<Button>("HelpPrevious"));
             Assert.NotNull(help.FindControl<Button>("HelpNext"));
@@ -253,7 +253,7 @@ public sealed class CommandHelpTests
         {
             Layout(window);
             var find = window.FindControl<TextBox>("HelpFind")!;
-            var viewer = window.FindControl<TextEditor>("HelpContent")!;
+            var viewer = window.FindEditor("HelpContent")!;
             var previous = window.FindControl<Button>("HelpPrevious")!;
             var next = window.FindControl<Button>("HelpNext")!;
             Assert.False(next.IsEnabled);
@@ -307,7 +307,7 @@ public sealed class CommandHelpTests
         try
         {
             Layout(window);
-            var viewer = window.FindControl<TextEditor>("HelpContent")!;
+            var viewer = window.FindEditor("HelpContent")!;
             window.FindControl<Button>("HelpSettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitFor(() => window.OwnedWindows.OfType<HelpSettingsWindow>().Any());
             var settings = window.OwnedWindows.OfType<HelpSettingsWindow>().Single();
@@ -355,7 +355,7 @@ public sealed class CommandHelpTests
                 check.IsChecked = false;
             settings.FindControl<Button>("AcceptHelpSettings")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitFor(() => window.Preferences.Sections.Count == 0);
-            Assert.Equal("", window.FindControl<TextEditor>("HelpContent")!.Text);
+            Assert.Equal("", window.FindEditor("HelpContent")!.Text);
             Assert.False(window.FindControl<Button>("HelpNext")!.IsEnabled);
         }
         finally { window.Close(); }
@@ -375,7 +375,7 @@ public sealed class CommandHelpTests
             settings.FindControl<Button>("AcceptHelpSettings")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitFor(() => window.FindControl<TextBlock>("HelpSearchStatus")!.Text?.Contains("test-save-failure") == true);
             Assert.Contains(HelpSectionKind.Synopsis, window.Preferences.Sections);
-            Assert.Contains("Widget widgets widget", window.FindControl<TextEditor>("HelpContent")!.Text);
+            Assert.Contains("Widget widgets widget", window.FindEditor("HelpContent")!.Text);
         }
         finally { window.Close(); }
     }
@@ -399,7 +399,7 @@ public sealed class CommandHelpTests
             await WaitFor(() => command.OwnedWindows.OfType<CommandHelpWindow>().Any());
             var help = command.OwnedWindows.OfType<CommandHelpWindow>().Single();
             Assert.Equal(SessionState.Running, session.Engine.State);
-            Assert.Contains("Finds a widget.", help.FindControl<TextEditor>("HelpContent")!.Text);
+            Assert.Contains("Finds a widget.", help.FindEditor("HelpContent")!.Text);
             await session.Engine.StopAsync();
             await execution.WaitAsync(TimeSpan.FromSeconds(10));
             await WaitFor(() => !window.OwnedWindows.OfType<ShowCommandWindow>().Any());

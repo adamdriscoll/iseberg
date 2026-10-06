@@ -1,10 +1,10 @@
 # Editor distribution notices
 
-Iseberg is copyright (c) 2026 Adam Driscoll, licensed under MIT. The complete `LICENSE` is included in the editor nupkg. The accessibility peer is shared Iseberg source; the old workbench remains separate.
+Iseberg is copyright (c) 2026 Adam Driscoll, licensed under MIT. The complete `LICENSE` is included in the editor nupkg. The editor module owns the shared accessibility peer, editing/analysis lifetime and completion presentation; the runtime-owning workbench uses it rather than compiling a parallel editor.
 
 Direct packages `Avalonia` **12.1.3** and `Avalonia.AvaloniaEdit` **12.0.0** declare MIT in official NuGet metadata. The producer lock also includes `Avalonia.BuildServices` 11.3.2, `Avalonia.Remote.Protocol` 12.1.3 and `MicroCom.Runtime` 0.11.6, each declaring MIT. Preserve upstream copyright/license and bundled third-party notices when distributing their assemblies.
 
-AvaloniaEdit is a port of AvalonEdit. PowerShell lexical highlighting loads AvaloniaEdit's bundled `Highlighting/Resources/PowerShell.xshd` at runtime under that library's license, without copying/relicensing the implementation. Each control has its own palette; no global definition is modified.
+AvaloniaEdit is a port of AvalonEdit. PowerShell lexical highlighting loads AvaloniaEdit's bundled `Highlighting/Resources/PowerShell.xshd` at runtime under that library's license, without copying/relicensing the implementation. Each control has its own palette; no global definition is modified. Shared scoped styles reference the library's existing base templates rather than copying them.
 
 The editor **does not depend on or redistribute System.Management.Automation, Microsoft.PowerShell.SDK, PowerShell modules, Microsoft.Management.Infrastructure or PowerShell-native binaries**. It has no built-in PowerShell parser. Host-owned analysis and completion providers are opt-in; their licenses and behavior are not covered by Iseberg's MIT license.
 

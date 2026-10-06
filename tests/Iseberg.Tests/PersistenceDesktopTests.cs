@@ -27,7 +27,7 @@ public sealed class PersistenceDesktopTests
                 window.Workbench.SelectedSession?.Engine.State == SessionState.Ready);
             var session = window.Workbench.SelectedSession!;
             var execution = session.Engine.ExecuteAsync("$Host.EnterNestedPrompt(); 'returned'");
-            var editor = window.FindControl<TextEditor>("ConsoleEditor")!;
+            var editor = window.FindEditor("ConsoleEditor")!;
             await WaitFor(() => session.Engine.IsNestedPromptActive && !editor.IsReadOnly);
             window.Close();
             await WaitFor(() => window.OwnedWindows.Any());
@@ -100,13 +100,16 @@ public sealed class PersistenceDesktopTests
             window.Close();
             await WaitFor(() => window.OwnedWindows.Any());
             ClickChoice(window, "Cancel");
-            await WaitFor(() => !window.OwnedWindows.Any());
+            await WaitFor(() => !window.OwnedWindows.Any() && !window.FindEditor("ScriptEditor")!.IsReadOnly);
             Assert.True(window.IsVisible);
             Assert.Single(window.Workbench.Sessions);
             window.Close();
             await WaitFor(() => window.OwnedWindows.Any());
+            var failures = new List<WorkbenchErrorEventArgs>();
+            window.Editor.ErrorOccurred += (_, failure) => failures.Add(failure);
             ClickChoice(window, "Don't Save");
-            await WaitFor(() => !window.IsVisible);
+            await WaitFor(() => !window.IsVisible || failures.Count > 0);
+            Assert.True(failures.Count == 0, string.Join("\n", failures.Select(failure => failure.Exception.ToString())));
             var saved = await new WorkbenchStateStore(settingsPath + ".workbench.json").LoadAsync();
             Assert.NotNull(saved);
             Assert.Equal("PowerShell 3", saved.Sessions.Single().Name);
@@ -158,7 +161,7 @@ public sealed class PersistenceDesktopTests
             saved.File.Text = "edits must not enter session metadata";
             saved.Document.Text = saved.File.Text;
             saved.File.SetEncoding(new(1200, true));
-            var editor = first.FindControl<TextEditor>("ScriptEditor")!;
+            var editor = first.FindEditor("ScriptEditor")!;
             editor.CaretOffset = 6;
             another.DebuggerPaneVisible = true;
             original.Files.Add(new(ScriptFile.CreateUntitled("Untitled7.ps1", new(1252, false))));
@@ -179,7 +182,7 @@ public sealed class PersistenceDesktopTests
             Assert.Equal("'disk version'\r\n", restored.SelectedFile!.Document.Text);
             Assert.False(restored.SelectedFile.File.IsDirty);
             Assert.Equal(65001, restored.SelectedFile.File.EncodingChoice.CodePage);
-            Assert.Equal(6, second.FindControl<TextEditor>("ScriptEditor")!.CaretOffset);
+            Assert.Equal(6, second.FindEditor("ScriptEditor")!.CaretOffset);
             Assert.True(restored.DebuggerPaneVisible);
             Assert.Equal("$privateRestartValue", restored.Watches.Single());
             Assert.False(restored.Breakpoints.Single().Spec.Enabled);

@@ -285,7 +285,7 @@ public sealed class EditingFeatureTests
             window.Workbench.SelectedSession = session;
             window.Show();
             Dispatcher.UIThread.RunJobs();
-            var editor = window.FindControl<TextEditor>("ConsoleEditor")!;
+            var editor = window.FindEditor("ConsoleEditor")!;
             session.History.AddRange(["first", "second"]);
             session.HistoryIndex = 2;
             session.Input = "'draft'";
@@ -381,7 +381,7 @@ public sealed class EditingFeatureTests
             window.Workbench.SelectedSession = session;
             window.Show();
             Dispatcher.UIThread.RunJobs();
-            var editor = window.FindControl<TextEditor>("ConsoleEditor")!;
+            var editor = window.FindEditor("ConsoleEditor")!;
             session.Input = "Get-ParityUni";
             editor.CaretOffset = editor.Document.TextLength;
             editor.TextArea.Focus();
@@ -414,7 +414,7 @@ public sealed class EditingFeatureTests
             window.Workbench.Sessions.Add(session); window.Workbench.SelectedSession = session;
             window.Show();
             Dispatcher.UIThread.RunJobs();
-            var editor = window.FindControl<TextEditor>("ScriptEditor")!;
+            var editor = window.FindEditor("ScriptEditor")!;
             editor.CaretOffset = editor.Document.TextLength;
             editor.TextArea.Focus();
             window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.Control);
@@ -441,14 +441,14 @@ public sealed class EditingFeatureTests
             window.Workbench.Sessions.Add(session); window.Workbench.SelectedSession = session;
             window.Show();
             Dispatcher.UIThread.RunJobs();
-            var editor = window.FindControl<TextEditor>("ScriptEditor")!;
+            var editor = window.FindEditor("ScriptEditor")!;
             editor.TextArea.Focus();
             editor.CaretOffset = 11;
             window.KeyPressQwerty(PhysicalKey.BracketRight, RawInputModifiers.Control);
             Assert.Equal(editor.Document.TextLength - 1, editor.CaretOffset);
             window.KeyPressQwerty(PhysicalKey.BracketRight, RawInputModifiers.Control | RawInputModifiers.Shift);
             Assert.Equal("{\n    'text'\n}", editor.SelectedText);
-            var console = window.FindControl<TextEditor>("ConsoleEditor")!;
+            var console = window.FindEditor("ConsoleEditor")!;
             session.Input = "@(1, 2)";
             console.TextArea.Focus();
             console.CaretOffset = session.Console.InputStart + 1;
@@ -497,7 +497,7 @@ public sealed class EditingFeatureTests
             await session.Engine.CompleteAsync("$", 1);
             window.Workbench.Sessions.Add(session); window.Workbench.SelectedSession = session;
             window.Show(); Dispatcher.UIThread.RunJobs();
-            var editor = window.FindControl<TextEditor>("ConsoleEditor")!;
+            var editor = window.FindEditor("ConsoleEditor")!;
             editor.CaretOffset = editor.Document.TextLength;
             editor.TextArea.Focus();
             window.KeyTextInput("$");
@@ -530,7 +530,7 @@ public sealed class EditingFeatureTests
             await session.Engine.CompleteAsync("Get-ParityCycle", 15);
             window.Workbench.Sessions.Add(session); window.Workbench.SelectedSession = session;
             window.Show(); Dispatcher.UIThread.RunJobs();
-            var editor = window.FindControl<TextEditor>("ConsoleEditor")!;
+            var editor = window.FindEditor("ConsoleEditor")!;
             session.Input = "Get-ParityCycle";
             editor.CaretOffset = editor.Document.TextLength;
             editor.TextArea.Focus();
@@ -562,7 +562,7 @@ public sealed class EditingFeatureTests
             session.Files.Add(file); session.SelectedFile = file;
             window.Workbench.Sessions.Add(session); window.Workbench.SelectedSession = session;
             window.Show(); Dispatcher.UIThread.RunJobs();
-            var editor = window.FindControl<TextEditor>(editorName)!;
+            var editor = window.FindEditor(editorName)!;
             editor.CaretOffset = editor.Document.TextLength;
             editor.TextArea.Focus();
             foreach (var character in "Get-")
@@ -601,7 +601,7 @@ public sealed class EditingFeatureTests
             session.Files.Add(file); session.SelectedFile = file;
             window.Workbench.Sessions.Add(session); window.Workbench.SelectedSession = session;
             window.Show(); Dispatcher.UIThread.RunJobs();
-            var editor = window.FindControl<TextEditor>(editorName)!;
+            var editor = window.FindEditor(editorName)!;
             if (editorName == "ConsoleEditor") session.Input = "Get-Process ";
             else editor.Text = "Get-Process ";
             editor.CaretOffset = editor.Document.TextLength;
@@ -620,7 +620,7 @@ public sealed class EditingFeatureTests
     }
 
     private static CompletionWindow? Completion(MainWindow window) => typeof(WorkbenchControl)
-        .GetField("completion", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+        .GetProperty("Completion", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
         .GetValue(window.Editor) as CompletionWindow;
 
     private static async Task WaitUntilAsync(Func<bool> condition)

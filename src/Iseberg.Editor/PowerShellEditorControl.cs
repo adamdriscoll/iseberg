@@ -4,7 +4,6 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using AvaloniaEdit.CodeCompletion;
@@ -31,17 +30,21 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
 
     private readonly AccessibleTextEditor editor = new() { ShowLineNumbers = true };
     private readonly SearchPanel search;
+    private readonly EditorStyles editorStyles;
     private TextDocument document = new();
     private ITextSourceVersion? observedVersion;
     private CancellationTokenSource? analysisCancellation;
     private CancellationTokenSource? completionCancellation;
     private CompletionWindow? completionWindow;
+    private PopupContext? popupContext;
+    private bool enteringText;
     private IEditorCompletionProvider? completionProvider;
     private IEditorAnalysisProvider? analysisProvider;
     private EditorAnalysisResult analysis = new(0, EditorAnalysisState.Unavailable, []);
     private long version;
     private long lifetime;
     private bool attached;
+    private bool hasAttached;
     private bool disposed;
     private int savedCaret;
     private int savedSelectionStart;
@@ -53,10 +56,13 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
         observedVersion = document.Version;
         editor.Document = document;
         search = SearchPanel.Install(editor);
-        Styles.Add(EditorStyles());
+        editorStyles = EditorCompletionPopup.Styles();
+        Styles.Add(editorStyles);
         Content = editor;
         AutomationProperties.SetName(editor, EditorName);
         editor.TextArea.Caret.PositionChanged += OnCaretChanged;
+        editor.TextArea.TextEntering += OnTextEntering;
+        editor.TextArea.TextEntered += OnTextEntered;
         editor.AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
         ActualThemeVariantChanged += (_, _) => UpdateColors();
         UpdateColors();
@@ -80,7 +86,7 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
             observedVersion = value.Version;
             version++;
             savedCaret = savedSelectionStart = savedSelectionLength = 0;
-            editor.Document = attached ? value : null;
+            editor.Document = attached || !hasAttached ? value : null;
             InvalidateAnalysis();
             if (attached)
             {
@@ -96,6 +102,11 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
     /// <summary>Disable for host high-contrast palettes. No application resources are modified.</summary>
     public bool EnableSyntaxHighlighting { get => GetValue(EnableSyntaxHighlightingProperty); set => SetValue(EnableSyntaxHighlightingProperty, value); }
     public string EditorName { get => GetValue(EditorNameProperty); set => SetValue(EditorNameProperty, value); }
+    /// <summary>Advanced host extensions: options, margins, rendering, scroll and edit commands. Assign Document/IsReadOnly through this control.</summary>
+    public AccessibleTextEditor TextEditor => editor;
+    public bool CompletionAcceptsEnter { get; set; } = true;
+    public bool IsCompletionOpen => completionWindow is not null;
+    public CompletionWindow? CompletionPopup => completionWindow;
     public long DocumentVersion { get { VerifyUsable(); SynchronizeVersion(); return version; } }
     public EditorAnalysisResult Analysis
     {
@@ -162,6 +173,19 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
     {
         VerifyUsable();
         return editor.TextArea.Focus();
+    }
+
+    public void ShowFind()
+    {
+        VerifyUsable();
+        search.Open();
+        search.Reactivate();
+    }
+
+    public void CloseCompletion()
+    {
+        VerifyUsable();
+        CancelCompletion();
     }
 
     public EditorTextSnapshot CaptureText(EditorTextScope scope = EditorTextScope.Document)
@@ -301,6 +325,11 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(itemIndex, completion.Items.Length);
         var item = completion.Items[itemIndex] ?? throw new ArgumentException("Completion item is null.", nameof(completion));
         ArgumentNullException.ThrowIfNull(item.Text);
+        var protection = editor.TextArea.ReadOnlySectionProvider;
+        if (!protection.CanInsert(completion.ReplacementSpan.Start) ||
+            protection.GetDeletableSegments(new SimpleSegment(completion.ReplacementSpan.Start, completion.ReplacementSpan.Length))
+                .Sum(segment => segment.Length) != completion.ReplacementSpan.Length)
+            throw new InvalidOperationException("The completion would replace protected text.");
         document.Replace(completion.ReplacementSpan.Start, completion.ReplacementSpan.Length, item.Text);
         CaretOffset = completion.ReplacementSpan.Start + item.Text.Length;
     }
@@ -315,6 +344,7 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
         editor.Select(selection.Start, selection.Length);
         editor.CaretOffset = Math.Min(savedCaret, document.TextLength);
         attached = true;
+        hasAttached = true;
         SubscribeDocument();
         Observe(AnalyzeCoreAsync(CancellationToken.None, debounce: true), "Analysis");
     }
@@ -367,7 +397,15 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
     private void OnDocumentChanged(object? sender, DocumentChangeEventArgs args)
     {
         SynchronizeVersion();
-        CancelCompletion();
+        completionCancellation?.Cancel();
+        if (completionWindow is not null && popupContext is { Valid: true } context && enteringText &&
+            args.RemovalLength == 0 && args.Offset >= context.Span.Start && args.Offset <= context.Span.End &&
+            !args.InsertedText.Text.Contains('\n') && !args.InsertedText.Text.Contains('\r'))
+        {
+            context.Span = new(context.Span.Start, context.Span.Length + args.InsertionLength);
+            context.Version = version;
+        }
+        else CancelCompletion();
         InvalidateAnalysis();
         Observe(AnalyzeCoreAsync(CancellationToken.None, debounce: true), "Analysis");
     }
@@ -392,10 +430,18 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
         AnalysisChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void OnCaretChanged(object? sender, EventArgs args) => CancelCompletion();
+    private void OnTextEntering(object? sender, TextInputEventArgs args) => enteringText = true;
+    private void OnTextEntered(object? sender, TextInputEventArgs args) => enteringText = false;
+    private void OnCaretChanged(object? sender, EventArgs args)
+    {
+        completionCancellation?.Cancel();
+        if (!enteringText) CancelCompletion();
+    }
     private void CancelCompletion()
     {
         completionCancellation?.Cancel();
+        if (popupContext is not null) popupContext.Valid = false;
+        popupContext = null;
         completionWindow?.Close();
         completionWindow = null;
     }
@@ -420,42 +466,21 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
         }
     }
 
-    private async Task ShowCompletionAsync()
+    public async Task ShowCompletionAsync(CancellationToken cancellationToken = default)
     {
-        var result = await RequestCompletionAsync();
-        if (!attached || IsReadOnly || result.Items.IsEmpty) return;
-        var window = new CompletionWindow(editor.TextArea)
+        var result = await RequestCompletionAsync(cancellationToken);
+        if (!attached || result.Items.IsEmpty) return;
+        var context = new PopupContext(result.Version, result.ReplacementSpan, lifetime);
+        var window = EditorCompletionPopup.Show(editor.TextArea, result.ReplacementSpan,
+            result.Items.Select(item => new CompletionData(this, result, item, context)), CompletionAcceptsEnter,
+            document.GetText(result.ReplacementSpan.Start, Math.Clamp(CaretOffset - result.ReplacementSpan.Start, 0, result.ReplacementSpan.Length)));
+        completionWindow = window;
+        popupContext = context;
+        window.Closed += (_, _) =>
         {
-            StartOffset = result.ReplacementSpan.Start,
-            EndOffset = result.ReplacementSpan.End,
-            CloseWhenCaretAtBeginning = false
+            if (ReferenceEquals(completionWindow, window)) { completionWindow = null; popupContext = null; }
         };
-        try
-        {
-            // AvaloniaEdit 12 completion is a popup, outside the editor's scoped style tree.
-            window.CompletionList.Styles.Add(EditorStyles());
-            if (!this.TryFindResource(typeof(CompletionList), out var theme) || theme is not ControlTheme completionTheme)
-                throw new InvalidOperationException("The editor completion theme is unavailable.");
-            window.CompletionList.Theme = completionTheme;
-            foreach (var item in result.Items) window.CompletionList.CompletionData.Add(new CompletionData(this, result, item));
-            completionWindow = window;
-            window.Closed += (_, _) => { if (ReferenceEquals(completionWindow, window)) completionWindow = null; };
-            window.Show();
-            window.CompletionList.ApplyTemplate();
-            window.CompletionList.SelectItem(document.GetText(result.ReplacementSpan.Start,
-                Math.Clamp(CaretOffset - result.ReplacementSpan.Start, 0, result.ReplacementSpan.Length)));
-        }
-        catch
-        {
-            window.Close();
-            throw;
-        }
     }
-
-    private static StyleInclude EditorStyles() => new(new Uri("avares://Iseberg.Editor/"))
-    {
-        Source = new Uri("avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml")
-    };
 
     private async void Observe(Task task, string operation)
     {
@@ -490,12 +515,24 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
         UnsubscribeDocument();
         search.Uninstall();
         editor.TextArea.Caret.PositionChanged -= OnCaretChanged;
+        editor.TextArea.TextEntering -= OnTextEntering;
+        editor.TextArea.TextEntered -= OnTextEntered;
         editor.RemoveHandler(KeyDownEvent, OnKeyDown);
         editor.Document = null;
         Analysis = new(version, EditorAnalysisState.Unavailable, []);
+        analysisProvider = null;
+        completionProvider = null;
     }
 
-    private sealed class CompletionData(PowerShellEditorControl owner, EditorCompletionList list, EditorCompletionItem item) : ICompletionData
+    private sealed class PopupContext(long version, EditorTextSpan span, long lifetime)
+    {
+        public long Version { get; set; } = version;
+        public EditorTextSpan Span { get; set; } = span;
+        public long Lifetime { get; } = lifetime;
+        public bool Valid { get; set; } = true;
+    }
+
+    private sealed class CompletionData(PowerShellEditorControl owner, EditorCompletionList list, EditorCompletionItem item, PopupContext context) : ICompletionData
     {
         public Avalonia.Media.IImage? Image => null;
         public string Text => item.Text;
@@ -504,7 +541,13 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
         public double Priority => 0;
         public void Complete(TextArea textArea, ISegment completionSegment, EventArgs insertionRequestEventArgs)
         {
-            try { owner.ApplyCompletion(list, list.Items.IndexOf(item)); }
+            try
+            {
+                if (!context.Valid || context.Lifetime != owner.lifetime || context.Version != owner.DocumentVersion ||
+                    context.Span != new EditorTextSpan(completionSegment.Offset, completionSegment.Length))
+                    throw new InvalidOperationException("The completion popup snapshot is stale.");
+                owner.ApplyCompletion(list with { Version = context.Version, ReplacementSpan = context.Span }, list.Items.IndexOf(item));
+            }
             catch (Exception exception) { owner.ReportError("Completion", exception); }
         }
     }

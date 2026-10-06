@@ -28,6 +28,8 @@ public sealed partial class WorkbenchControl
 
     /// <summary>True after initialization completes and until disposal starts.</summary>
     public bool IsStarted => startupComplete && !windowClosed;
+    /// <summary>The same packaged, engine-independent script editor used by external hosts.</summary>
+    public PowerShellEditorControl ScriptEditorView => ScriptEditorControl;
     /// <summary>Raised by Exit; the host decides whether and what to close.</summary>
     public event EventHandler? CloseRequested;
     /// <summary>Raised for failures in UI or automatic operations. Public awaited operations throw instead.</summary>
@@ -211,8 +213,8 @@ public sealed partial class WorkbenchControl
         IsEnabled = false;
         ++commandRequestVersion;
         windowCancellation.Cancel();
-        outputTimer.Stop(); analysisTimer.Stop(); autoSaveTimer.Stop(); completionTimer.Stop(); persistenceTimer.Stop();
-        completion?.Close();
+        outputTimer.Stop(); autoSaveTimer.Stop(); completionTimer.Stop(); persistenceTimer.Stop();
+        Completion?.Close();
         commandFormCancellation?.Cancel();
         commandFormCancellation?.Dispose();
         commandFormCancellation = null;
@@ -243,8 +245,9 @@ public sealed partial class WorkbenchControl
             }
         }
         windowCancellation.Dispose();
-        AvaloniaEdit.Folding.FoldingManager.Uninstall(folding);
-        ScriptEditor.Document = new();
+        if (folding is not null) AvaloniaEdit.Folding.FoldingManager.Uninstall(folding);
+        folding = null;
+        ScriptEditorControl.Dispose();
         ConsoleEditor.Document = new();
         foreach (var path in printPreviews)
         {

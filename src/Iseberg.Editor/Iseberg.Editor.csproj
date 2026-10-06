@@ -8,13 +8,11 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <DefineConstants>$(DefineConstants);ISEBERG_EDITOR</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <None Remove="$(MSBuildThisFileDirectory)..\..\docs\nuget-hosting.md" />
     <PackageReference Include="Avalonia" Version="[12.1.3]" />
     <PackageReference Include="Avalonia.AvaloniaEdit" Version="[12.0.0]" />
-    <Compile Include="..\Iseberg\AccessibleTextEditor.cs" Link="AccessibleTextEditor.cs" />
     <None Include="..\..\docs\editor-hosting.md" Pack="true" PackagePath="" />
     <None Include="..\..\docs\editor-notices.md" Pack="true" PackagePath="" />
     <None Include="..\..\LICENSE" Pack="true" PackagePath="" />

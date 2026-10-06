@@ -356,6 +356,61 @@ public sealed class EditorTests
         finally { window.Close(); }
     }
 
+    [AvaloniaFact]
+    public async Task CompletionPopupFiltersUserTypingButHostMutationsInvalidateIt()
+    {
+        using var control = new PowerShellEditorControl(new TextDocument("Get"));
+        control.CompletionProvider = new ImmediateProvider(request => new(request.Version, new(0, 3),
+            [new("Get-Date", "Date"), new("Get-Process", "Process")]));
+        var window = Show(control);
+        try
+        {
+            control.CaretOffset = 3;
+            control.FocusEditor();
+            await control.ShowCompletionAsync();
+            window.KeyTextInput("-D");
+            await Task.Yield();
+            Assert.True(control.IsCompletionOpen);
+            Assert.Equal("Get-Date", control.CompletionPopup!.CompletionList.SelectedItem!.Text);
+            Press(window, Key.Tab);
+            Assert.Equal("Get-Date", control.Document.Text);
+            control.Document.Text = "Get";
+            control.CaretOffset = 3;
+            await control.ShowCompletionAsync();
+            control.Document.Insert(3, "-D");
+            Assert.False(control.IsCompletionOpen);
+            Assert.Equal("Get-D", control.Document.Text);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task CompletionPreferenceFindAndHostProtectedRangesShareTheActualEditor()
+    {
+        using var control = new PowerShellEditorControl(new TextDocument("Get")) { CompletionAcceptsEnter = false };
+        control.CompletionProvider = new ImmediateProvider(request => new(request.Version, new(0, 3), [new("Get-Date", "Date")]));
+        var window = Show(control);
+        try
+        {
+            Assert.Same(control.TextEditor, Inner(control));
+            control.FocusEditor();
+            control.CaretOffset = 3;
+            await control.ShowCompletionAsync();
+            control.CloseCompletion();
+            Assert.False(control.IsCompletionOpen);
+            await control.ShowCompletionAsync();
+            Press(window, Key.Enter);
+            Assert.StartsWith("Get", control.Document.Text);
+            Assert.Contains("\n", control.Document.Text);
+            Assert.DoesNotContain("Get-Date", control.Document.Text);
+            control.ShowFind();
+            Assert.False(Assert.Single(control.GetVisualDescendants().OfType<SearchPanel>()).IsClosed);
+            control.TextEditor.TextArea.ReadOnlySectionProvider = new ProtectedDocument();
+            Assert.Throws<InvalidOperationException>(() => control.ApplyCompletion(List(control), 0));
+        }
+        finally { window.Close(); }
+    }
+
     [AvaloniaTheory]
     [InlineData("edit")]
     [InlineData("caret")]
@@ -667,5 +722,11 @@ public sealed class EditorTests
     {
         public Task<EditorCompletionList> CompleteAsync(EditorCompletionRequest request, CancellationToken token) =>
             Task.FromException<EditorCompletionList>(exception);
+    }
+
+    private sealed class ProtectedDocument : AvaloniaEdit.Editing.IReadOnlySectionProvider
+    {
+        public bool CanInsert(int offset) => false;
+        public IEnumerable<ISegment> GetDeletableSegments(ISegment segment) => [];
     }
 }

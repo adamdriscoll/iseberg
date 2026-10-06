@@ -27,7 +27,7 @@ dotnet build Iseberg.slnx
 dotnet test Iseberg.slnx
 ```
 
-The default build includes PowerShell and must remain untrimmed. Release builds omit Avalonia developer tooling.
+The app and its shared editor use Avalonia/Desktop/Fluent 12.1.3 and AvaloniaEdit 12.0.0. The default workbench build includes PowerShell and must remain untrimmed; editor-only hosts have no PowerShell dependency. Release builds omit Avalonia developer tooling.
 
 ### Test coverage and prerequisites
 
@@ -70,7 +70,7 @@ macOS ZIPs contain the full `.app` bundle; Unix ZIPs preserve executable permiss
 
 CI builds full and compact packages for all five runtimes after the existing platform tests, using `0.0.<run-number>-ci` versions, and uploads the MSI/DMG/ZIP files and NuGet packages as Actions artifacts. Both CI and releases use the same reusable packaging workflow, including native compact runtime checks. CI does not publish to nuget.org.
 
-**Release packages** runs when a version tag (`v1.2.3` or `1.2.3`, optionally with a prerelease suffix) is pushed or a release is published. It builds from that tag, stamps both distributions and NuGet packages with the release version, and attaches the full packages, compact ZIPs, and `.nupkg` files directly to the release after all packaging jobs succeed. After uploading the release assets, it publishes `PoshTools.Iseberg.Core` and `PoshTools.ISEBerg` to nuget.org.
+**Release packages** runs when a version tag (`v1.2.3` or `1.2.3`, optionally with a prerelease suffix) is pushed or a release is published. It builds from that tag, stamps both distributions and NuGet packages with the release version, and attaches the full packages, compact ZIPs, and `.nupkg` files directly to the release after all packaging jobs succeed. After uploading the release assets, it publishes `PoshTools.Iseberg.Core`, `PoshTools.Iseberg.Editor` and `PoshTools.ISEBerg` to nuget.org.
 
 A tag push creates a release if needed; prerelease tags create prereleases. Publishing an existing release preserves its title/body. The workflow needs `contents: write` only for uploading/creating releases.
 
@@ -87,11 +87,11 @@ Releases use [NuGet trusted publishing](https://learn.microsoft.com/en-us/nuget/
 | Workflow file | `release.yml` (filename only, not `.github/workflows/release.yml`) |
 | Environment | Leave empty; the publishing job does not use a GitHub Actions environment |
 
-Choose the NuGet package owner and publishing scopes that cover both `PoshTools.ISEBerg` and `PoshTools.Iseberg.Core`, including creating new packages for their first release. Add a **repository Actions secret** named `NUGET_USER` containing your nuget.org **profile username**, not your email address. A stored `NUGET_API_KEY` secret is no longer needed and can be removed.
+Choose the NuGet package owner and publishing scopes that cover `PoshTools.ISEBerg`, `PoshTools.Iseberg.Core` and `PoshTools.Iseberg.Editor`, including creating new packages for their first release. Add a **repository Actions secret** named `NUGET_USER` containing your nuget.org **profile username**, not your email address. A stored `NUGET_API_KEY` secret is no longer needed and can be removed.
 
 Only the publishing job has `id-token: write`. After downloading the built packages, `NuGet/login@v1` exchanges the GitHub OIDC token for a temporary API key, valid for one hour, immediately before pushing. Missing usernames or mismatched/inactive trusted policies fail authentication. Already-published package versions are skipped so tag/release events and workflow retries do not attempt to overwrite immutable NuGet versions.
 
-Both packages target .NET 10. `PoshTools.ISEBerg` provides the embeddable Avalonia `WorkbenchControl` and depends on the same release version of `PoshTools.Iseberg.Core`, which contains the PowerShell engine and editor services. The assembly names and C# namespaces remain `Iseberg` and `Iseberg.Core`. The [NuGet hosting guide](nuget-hosting.md) documents installation, configuration, public operations, persistence, and lifetime management.
+All packages target .NET 10. `PoshTools.ISEBerg` provides the embeddable Avalonia `WorkbenchControl` and depends on the same release versions of `PoshTools.Iseberg.Core`, which contains the PowerShell engine, and `PoshTools.Iseberg.Editor`, which contains the shared engine-independent editor. The assembly names and C# namespaces are `Iseberg`, `Iseberg.Core` and `Iseberg.Editor`. The [NuGet hosting guide](nuget-hosting.md) documents installation, configuration, public operations, persistence, and lifetime management.
 
 To build the same packages locally without publishing:
 
@@ -99,9 +99,9 @@ To build the same packages locally without publishing:
 dotnet pack Iseberg.slnx -c Release -p:Version=1.2.3 -p:ContinuousIntegrationBuild=true -o publish/nuget
 ```
 
-The output contains `PoshTools.ISEBerg.1.2.3.nupkg` and `PoshTools.Iseberg.Core.1.2.3.nupkg`. Prerelease tags retain their suffix in the NuGet version.
+The output contains `PoshTools.ISEBerg.1.2.3.nupkg`, `PoshTools.Iseberg.Core.1.2.3.nupkg` and `PoshTools.Iseberg.Editor.1.2.3.nupkg`. Prerelease tags retain their suffix in the NuGet version. The release workflow publishes Core and Editor before their dependent UI package.
 
-The solution also packs `PoshTools.Iseberg.Editor`, a separate Avalonia 12 editor-only module. Its producer and consumers have committed dependency locks; restore with `--locked-mode`. It is not added to the remote release publishing allow-list by this change. Build its default preview and verify independent package-only Fluent consumers with `.\build\Test-EditorPackage.ps1`; add `-NativeSmoke` on Windows. See the [editor hosting guide](editor-hosting.md) for its smaller interface, dependency/native/license limitations and host ownership.
+Iseberg's script pane and Options preview use `PoshTools.Iseberg.Editor`, and the protected console shares its accessible text view, scoped styles and completion popup. There is no second workbench editing control. Workbench-specific adapters retain parser colors/diagnostics, folding and debugger adornments without introducing runtime dependencies into the editor package. The editor producer and independent consumers have committed dependency locks; restore with `--locked-mode`. Verify the default preview through actual package-only Fluent consumers with `.\build\Test-EditorPackage.ps1`; add `-NativeSmoke` on Windows. See the [editor hosting guide](editor-hosting.md) for its interface, extension seam, platform/license limits and host ownership. Packaging does not itself publish anything.
 
 ### Compact single-file distribution
 

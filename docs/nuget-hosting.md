@@ -2,16 +2,19 @@
 
 Embed Iseberg's PowerShell workbench in your own Avalonia application, or use its engine without a UI.
 
-For **text editing only in Avalonia 12**, use the separate locally packable `PoshTools.Iseberg.Editor` module described in the [editor hosting guide](editor-hosting.md). It does not own execution, sessions, output or prompts and must not be replaced with this Avalonia 11 workbench package. None of these packages is currently confirmed published on nuget.org; build a local feed before installing.
+For **text editing only**, use the separate locally packable `PoshTools.Iseberg.Editor` module described in the [editor hosting guide](editor-hosting.md). Iseberg's Avalonia 12 workbench uses that same editor, but owns execution, sessions, output and prompts itself. None of these packages is currently confirmed published on nuget.org; build a local feed before installing.
 
 ## Packages and requirements
 
 | Package | Use |
 |---|---|
-| `PoshTools.ISEBerg` | `WorkbenchControl`, hosting options, observable session/document models, and the standalone `MainWindow`. Depends on `PoshTools.Iseberg.Core`. |
+| `PoshTools.ISEBerg` | `WorkbenchControl`, hosting options, observable session/document models, and the standalone `MainWindow`. Depends on `PoshTools.Iseberg.Core` and `PoshTools.Iseberg.Editor`. |
 | `PoshTools.Iseberg.Core` | `PowerShellSession`, parser analysis, completion, debugger/remoting operations, script files, and preferences without an Avalonia dependency. |
+| `PoshTools.Iseberg.Editor` | Shared engine-independent editing control, host-owned documents, lexical highlighting, injected diagnostics/completion, and accessibility. |
 
-Both packages target **.NET 10**. The UI uses **Avalonia 11.3.22** and **AvaloniaEdit 11.4.1**; use compatible versions in your host. PowerShell **7.6.6** is supplied through `Microsoft.PowerShell.SDK`, so normal package consumers do not need a separate `pwsh` installation. Native Avalonia prerequisites still apply on Windows, Linux, and macOS.
+All packages target **.NET 10**. The UI uses **Avalonia/Desktop/Fluent 12.1.3** and **AvaloniaEdit 12.0.0**; use those versions in your host. PowerShell **7.6.6** is supplied through `Microsoft.PowerShell.SDK` in the Core/workbench graph only; editor-only consumers have no PowerShell dependency. Native Avalonia prerequisites still apply on Windows, Linux, and macOS.
+
+**Migration:** rebuild Avalonia 11 hosts against Avalonia 12; resolving newer NuGet versions does not make old binaries compatible. The shared accessible editor's namespace is now `Iseberg.Editor`, and the script pane is `PowerShellEditorControl`. Use `WorkbenchControl.ScriptEditorView` for its supported interface rather than looking up a private named child. The app uses Fluent instead of Simple while preserving Iseberg's scoped system-color/style overrides.
 
 Install a released version, replacing `1.2.3` below with the version you need:
 
@@ -153,6 +156,7 @@ Use these methods rather than reaching into named controls or invoking private m
 | `InitializeAsync()` | Initializes configured state and the initial session. Repeated calls await the same task, including an initialization failure. |
 | `IsStarted` | True after successful initialization and until disposal starts. This is distinct from an individual engine's execution state. |
 | `Workbench` | Observable sessions, selected session, and per-session documents. Observe collections/properties to update host UI. Prefer the methods below for mutations. |
+| `ScriptEditorView` | The packaged `Iseberg.Editor.PowerShellEditorControl` used for the script pane. The workbench configures its analysis/completion providers and debugger-aware extensions; leave those host adapters in place when using workbench execution. |
 | `CreateSessionAsync()` | Creates/selects an independent PowerShell session and an untitled document. |
 | `SelectSession(session)` | Selects an owned session and updates its console and selected script. |
 | `CreateDocument(text = "")` | Creates/selects an untitled document. Nonempty initial text is dirty/unsaved. |
@@ -249,8 +253,8 @@ To build packages locally without publishing:
 dotnet pack Iseberg.slnx -c Release -p:Version=1.2.3 -p:ContinuousIntegrationBuild=true -o publish/nuget
 ```
 
-This creates `PoshTools.ISEBerg.1.2.3.nupkg` and `PoshTools.Iseberg.Core.1.2.3.nupkg`, with this guide as the package readme and XML documentation alongside the assemblies.
+This creates `PoshTools.ISEBerg.1.2.3.nupkg`, `PoshTools.Iseberg.Core.1.2.3.nupkg` and `PoshTools.Iseberg.Editor.1.2.3.nupkg`. The workbench/Core use this guide as their readme; the editor uses its separate hosting guide. XML documentation accompanies the assemblies.
 
-Releases use [NuGet trusted publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing). Register a nuget.org policy for repository owner `adamdriscoll`, repository `iseberg`, and workflow filename `release.yml`; leave its environment field empty. Choose publishing scopes covering `PoshTools.ISEBerg` and `PoshTools.Iseberg.Core`, including creating new packages for their first release. Add the repository Actions secret **`NUGET_USER`** with your nuget.org profile username (not your email address); no long-lived API key secret is required.
+Releases use [NuGet trusted publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing). Register a nuget.org policy for repository owner `adamdriscoll`, repository `iseberg`, and workflow filename `release.yml`; leave its environment field empty. Choose publishing scopes covering `PoshTools.ISEBerg`, `PoshTools.Iseberg.Core` and `PoshTools.Iseberg.Editor`, including creating new packages for their first release. Add the repository Actions secret **`NUGET_USER`** with your nuget.org profile username (not your email address); no long-lived API key secret is required.
 
-The release publishing job uses GitHub OIDC and `NuGet/login@v1` to obtain a temporary API key immediately before pushing. Release tags supply both package versions, including prerelease suffixes. Publishing pushes Core before the UI package and skips already-published versions; authentication failures fail the job. CI only builds artifacts. See the [publishing setup](https://github.com/adamdriscoll/iseberg/blob/main/docs/development.md#nuget-packages) for the complete trusted-publisher configuration and the [release workflow documentation](https://github.com/adamdriscoll/iseberg/blob/main/docs/development.md#release-workflow) for desktop asset packaging.
+The release publishing job uses GitHub OIDC and `NuGet/login@v1` to obtain a temporary API key immediately before pushing. Release tags supply all package versions, including prerelease suffixes. Publishing pushes Core and Editor before the UI package and skips already-published versions; authentication failures fail the job. CI only builds artifacts. See the [publishing setup](https://github.com/adamdriscoll/iseberg/blob/main/docs/development.md#nuget-packages) for the complete trusted-publisher configuration and the [release workflow documentation](https://github.com/adamdriscoll/iseberg/blob/main/docs/development.md#release-workflow) for desktop asset packaging.
