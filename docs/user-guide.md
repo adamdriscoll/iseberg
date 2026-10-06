@@ -25,11 +25,27 @@ Download unsigned, self-contained packages from [GitHub Releases](https://github
 
 The Windows MSI installs to Program Files with a Start menu shortcut. Its feature-selection page offers `.ps1`, `.psm1`, and `.psd1` registrations independently, off by default. Selecting one adds Iseberg to **Open with** and **Default apps**; choose Iseberg there to make it the default editor. Existing defaults and Windows' protected user choices are not overwritten.
 
-MSI upgrades retain selected features; uninstall removes installed files, shortcuts, and registrations but leaves user settings/recovery data.
+MSI upgrades retain selected features; uninstall removes installed files, shortcuts, registrations, and the install folder's `PATH` entry but leaves user settings/recovery data.
 
 The macOS app declares all three file types for Finder's **Open With**. Use **Get Info > Open with > Change All** to set a default if desired. Associated-file launches open documents for editing, never execute them. Windows/Linux ZIPs do not register file associations.
 
 **Packages are not signed or notarized yet:** Windows/macOS may warn or block launch according to local security policy. Native install/uninstall and desktop interaction across all platforms remain outside this implementation's verification scope.
+
+### Command-line launch
+
+Windows full distributions include `pwsh_ise.cmd` beside `Iseberg.exe`. It works from PowerShell and Command Prompt without a PowerShell module or profile changes:
+
+```powershell
+pwsh_ise
+pwsh_ise "C:\Scripts\example.ps1"
+pwsh_ise ".\first script.ps1" ".\second script.ps1"
+```
+
+Arguments are passed to Iseberg unchanged, and relative paths use the terminal's current directory. Scripts open for editing, not execution.
+
+The MSI adds its install folder to the system `PATH`; open a new terminal after installation to pick up the change. For a full Windows ZIP, add the extracted folder to `PATH` manually, or invoke `pwsh_ise.cmd` by its full path (using `&` before a quoted command path in PowerShell). Keep the launcher beside `Iseberg.exe`.
+
+The compact distribution remains a single executable and does not include the launcher. On Linux/macOS, continue launching `Iseberg` or the macOS app directly.
 
 ### Release checks and manual updates
 

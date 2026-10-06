@@ -22,6 +22,11 @@
         </File>
         <RemoveFolder Id="RemoveStartMenuFolder" Directory="IsebergMenuFolder" On="uninstall" />
       </Component>
+      <Component Id="CommandLineLauncher" Guid="*">
+        <File Id="PwshIseLauncher" Source="$(var.PublishDir)\pwsh_ise.cmd" KeyPath="yes" />
+        <Environment Id="IsebergPath" Name="PATH" Value="[INSTALLFOLDER]"
+                     Action="set" Part="last" System="yes" Permanent="no" />
+      </Component>
       <Component Id="AppRegistration" Guid="*">
         <RegistryValue Root="HKLM" Key="Software\RegisteredApplications" Name="Iseberg" Type="string" Value="Software\Iseberg\Capabilities" KeyPath="yes" />
         <RegistryValue Root="HKLM" Key="Software\Iseberg\Capabilities" Name="ApplicationName" Type="string" Value="Iseberg" />
@@ -29,6 +34,7 @@
       </Component>
       <Files Include="$(var.PublishDir)\**">
         <Exclude Files="$(var.PublishDir)\Iseberg.exe" />
+        <Exclude Files="$(var.PublishDir)\pwsh_ise.cmd" />
       </Files>
     </ComponentGroup>
     <ComponentGroup Id="PS1Association" Directory="INSTALLFOLDER">
@@ -55,7 +61,7 @@
         <RegistryValue Root="HKLM" Key="Software\Iseberg\Capabilities\FileAssociations" Name=".psd1" Type="string" Value="Iseberg.psd1" />
       </Component>
     </ComponentGroup>
-    <Feature Id="Application" Title="Iseberg" Level="1" AllowAbsent="no" Description="The application and Start menu shortcut.">
+    <Feature Id="Application" Title="Iseberg" Level="1" AllowAbsent="no" Description="The application, Start menu shortcut, and pwsh_ise command on PATH.">
       <ComponentGroupRef Id="Payload" />
     </Feature>
     <Feature Id="AssociatePS1" Title="Associate .ps1" Level="2" Description="Register Iseberg in Open with and Default apps for PowerShell scripts.">

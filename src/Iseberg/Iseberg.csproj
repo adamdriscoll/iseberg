@@ -22,6 +22,12 @@
   <ItemGroup>
     <ProjectReference Include="..\Iseberg.Core\Iseberg.Core.csproj" />
   </ItemGroup>
+  <ItemGroup Condition="'$(IsebergCompact)' != 'true' And
+                        ($([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-')) Or
+                         ('$(RuntimeIdentifier)' == '' And '$(OS)' == 'Windows_NT'))">
+    <Content Include="..\..\packaging\pwsh_ise.cmd" Link="pwsh_ise.cmd"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
   <Target Name="ValidateCompactPublish" BeforeTargets="PrepareForPublish" Condition="'$(IsebergCompact)' == 'true'">
     <Error Condition="'$(PublishAot)' == 'true'"
            Text="NativeAOT is not supported by the in-process PowerShell engine. Use the Compact profile without PublishAot." />

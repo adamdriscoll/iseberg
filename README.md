@@ -28,6 +28,8 @@ Download unsigned, self-contained packages from [GitHub Releases](https://github
 | macOS Intel / Apple silicon | DMG, ZIP | Open the DMG and drag `Iseberg.app` to Applications, or extract the ZIP and move the app there. |
 | Linux x64 / ARM64 | ZIP | Extract with an archive tool that preserves executable permissions, then run `./Iseberg` in a graphical desktop. |
 
+On Windows, the MSI also adds `pwsh_ise` to `PATH`. Open a new terminal after installation, then run `pwsh_ise` or `pwsh_ise "C:\Scripts\example.ps1"` from PowerShell or Command Prompt. For full ZIPs, add the extracted folder to `PATH` yourself. See [command-line launch](docs/user-guide.md#command-line-launch) for details.
+
 **Packages are not signed or notarized yet.** Windows/macOS may warn or block launch according to local security policy. See [installation and updates](docs/user-guide.md#installation-and-updates) for file associations, manual updates, and verification limits.
 
 ### Run from source
