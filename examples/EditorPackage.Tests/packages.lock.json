@@ -50,7 +50,7 @@
         "type": "Direct",
         "requested": "[0.1.0-preview.1, 0.1.0-preview.1]",
         "resolved": "0.1.0-preview.1",
-        "contentHash": "+TF1egkQzc5G+25ca7H+59J3qyaHDKX8PHeT0ywRrzfv/E7/MvbzF+qbqvIGWZXBzo0MwmXqLZR0TibzjGpIxQ==",
+        "contentHash": "Fyh8WrJ0LTf5E900vYGY8uVhU9/lb+kjCKHhwP4A6cCb0svexHoMRlIWOeSzO8AsaiLEZS+vRrxa6ZaLnKK+Ng==",
         "dependencies": {
           "Avalonia": "[12.1.3]",
           "Avalonia.AvaloniaEdit": "[12.0.0]"

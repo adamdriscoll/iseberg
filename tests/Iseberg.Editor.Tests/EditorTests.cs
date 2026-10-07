@@ -10,6 +10,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
+using Avalonia.Input.TextInput;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -33,6 +34,174 @@ public sealed class EditorTestApplication : Application
 
 public sealed class EditorTests
 {
+    [AvaloniaTheory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void NativeImeClientCanQuerySurroundingTextDuringDetachAndDispose(bool dispose, bool moveFocusFirst)
+    {
+        var document = new TextDocument("first\nsecond");
+        using var control = new PowerShellEditorControl(document);
+        var other = new TextBox { Text = "host focus target" };
+        var window = new Window { Content = new StackPanel { Children = { control, other } }, Width = 800, Height = 500 };
+        window.Show();
+        window.UpdateLayout();
+        var notifications = new List<string>();
+        try
+        {
+            control.FocusEditor();
+            control.CaretOffset = document.TextLength;
+            var request = new TextInputMethodClientRequestedEventArgs
+            {
+                RoutedEvent = InputElement.TextInputMethodClientRequestedEvent
+            };
+            control.TextEditor.TextArea.RaiseEvent(request);
+            var client = Assert.IsAssignableFrom<TextInputMethodClient>(request.Client);
+            Assert.True(client.SupportsSurroundingText);
+            void QuerySurroundingText(object? sender, EventArgs args)
+            {
+                notifications.Add(client.SurroundingText);
+                _ = client.Selection;
+            }
+            client.SurroundingTextChanged += QuerySurroundingText;
+            try
+            {
+                if (moveFocusFirst)
+                {
+                    Assert.True(other.Focus());
+                    Assert.True(other.IsKeyboardFocusWithin);
+                }
+                if (dispose) control.Dispose();
+                else window.Content = null;
+                Assert.NotEmpty(notifications);
+                Assert.Equal("first\nsecond", document.Text);
+                Assert.NotSame(document, control.TextEditor.Document);
+                Assert.NotNull(control.TextEditor.Document);
+                Assert.Equal("", control.TextEditor.Document.Text);
+                if (dispose) Assert.True(control.TextEditor.IsReadOnly);
+                Assert.True(string.IsNullOrEmpty(client.SurroundingText));
+            }
+            finally { client.SurroundingTextChanged -= QuerySurroundingText; }
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void FocusedTabSwitchesPreserveHostDocumentAndImeClientAfterReattachment()
+    {
+        var document = new TextDocument("first\nsecond");
+        document.Insert(0, "#");
+        var expected = document.Text;
+        using var control = new PowerShellEditorControl(document);
+        using var other = new PowerShellEditorControl(new TextDocument("other\neditor"));
+        var firstTab = new TabItem { Header = "First", Content = control };
+        var secondTab = new TabItem { Header = "Second", Content = other };
+        var tabs = new TabControl { Items = { firstTab, secondTab }, SelectedItem = firstTab };
+        var window = new Window { Content = tabs, Width = 800, Height = 500 };
+        window.Show();
+        window.UpdateLayout();
+        try
+        {
+            for (var iteration = 0; iteration < 10; iteration++)
+            {
+                Assert.True(control.FocusEditor());
+                control.Select(new(7, 3));
+                var caret = control.CaretOffset;
+                var selection = control.Selection;
+                var version = control.DocumentVersion;
+                var client = RequestImeClient(control);
+                var observed = new List<string>();
+                void Query(object? sender, EventArgs args)
+                {
+                    observed.Add(client.SurroundingText);
+                    _ = client.Selection;
+                }
+                void LostFocus(object? sender, Avalonia.Input.FocusChangedEventArgs args) => client.SurroundingTextChanged -= Query;
+                client.SurroundingTextChanged += Query;
+                control.TextEditor.TextArea.LostFocus += LostFocus;
+                try
+                {
+                    Assert.Equal("second", client.SurroundingText);
+                    tabs.SelectedItem = secondTab;
+                    window.UpdateLayout();
+                    Assert.NotEmpty(observed);
+                    Assert.NotSame(document, control.TextEditor.Document);
+                    Assert.Equal("", control.TextEditor.Document.Text);
+                    Assert.Equal(expected, document.Text);
+                    tabs.SelectedItem = firstTab;
+                    window.UpdateLayout();
+                    Assert.Same(document, control.Document);
+                    Assert.Same(document, control.TextEditor.Document);
+                    Assert.Equal(caret, control.CaretOffset);
+                    Assert.Equal(selection, control.Selection);
+                    Assert.Equal(version, control.DocumentVersion);
+                    Assert.True(control.FocusEditor());
+                    Assert.Equal("second", RequestImeClient(control).SurroundingText);
+                }
+                finally
+                {
+                    client.SurroundingTextChanged -= Query;
+                    control.TextEditor.TextArea.LostFocus -= LostFocus;
+                }
+            }
+            Assert.True(document.UndoStack.CanUndo);
+            document.UndoStack.Undo();
+            Assert.Equal("first\nsecond", document.Text);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void DetachedDocumentReplacementAndDisposalLeaveImeQueryableWithoutHostSubscriptions()
+    {
+        var first = new TextDocument("first\nsecond");
+        var replacement = new TextDocument("replacement\ncontent");
+        using var control = new PowerShellEditorControl(first);
+        var window = Show(control);
+        var observations = 0;
+        try
+        {
+            control.FocusEditor();
+            control.CaretOffset = first.TextLength;
+            var client = RequestImeClient(control);
+            void Query(object? sender, EventArgs args)
+            {
+                _ = client.SurroundingText;
+                _ = client.Selection;
+                observations++;
+            }
+            client.SurroundingTextChanged += Query;
+            try
+            {
+                window.Content = null;
+                control.Document = replacement;
+                Assert.NotSame(replacement, control.TextEditor.Document);
+                Assert.NotNull(control.TextEditor.Document);
+                var detachedObservations = observations;
+                first.Insert(0, "old host edit\n");
+                replacement.Insert(0, "new host edit\n");
+                Assert.Equal(detachedObservations, observations);
+                window.Content = control;
+                window.UpdateLayout();
+                Assert.Same(replacement, control.TextEditor.Document);
+                control.FocusEditor();
+                control.CaretOffset = replacement.TextLength;
+                Assert.Equal("content", RequestImeClient(control).SurroundingText);
+                control.Dispose();
+                Assert.NotSame(replacement, control.TextEditor.Document);
+                Assert.Equal("", control.TextEditor.Document.Text);
+                Assert.True(control.TextEditor.IsReadOnly);
+                var disposedObservations = observations;
+                replacement.Insert(0, "# after disposal\n");
+                Assert.Equal(disposedObservations, observations);
+                Assert.EndsWith("replacement\ncontent", replacement.Text);
+            }
+            finally { client.SurroundingTextChanged -= Query; }
+        }
+        finally { window.Close(); }
+    }
+
     [AvaloniaFact]
     public async Task FluentRenderingEditsNeverCreateRunspacesOrChangeGlobals()
     {
@@ -170,7 +339,8 @@ public sealed class EditorTests
             Assert.Equal("😀", selected.Text);
             control.Select(new(2, 2));
             window.Content = null;
-            Assert.Null(Inner(control).Document);
+            Assert.NotSame(document, Inner(control).Document);
+            Assert.Equal("", Inner(control).Document.Text);
             document.Insert(0, "!");
             var detachedVersion = control.DocumentVersion;
             window.Content = control;
@@ -662,6 +832,12 @@ public sealed class EditorTests
         return window;
     }
     private static TextEditor Inner(PowerShellEditorControl control) => control.GetVisualDescendants().OfType<TextEditor>().Single();
+    private static TextInputMethodClient RequestImeClient(PowerShellEditorControl control)
+    {
+        var request = new TextInputMethodClientRequestedEventArgs { RoutedEvent = InputElement.TextInputMethodClientRequestedEvent };
+        control.TextEditor.TextArea.RaiseEvent(request);
+        return Assert.IsAssignableFrom<TextInputMethodClient>(request.Client);
+    }
     private static void Press(Window window, KeyGesture gesture) => Press(window, gesture.Key, gesture.KeyModifiers);
     private static void Press(Window window, Key key, KeyModifiers modifiers = KeyModifiers.None)
     {

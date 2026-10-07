@@ -48,7 +48,8 @@ public sealed class HostingTests
             Assert.True(editor.IsCompletionOpen, "Console prompt/output batching must not dismiss script completion.");
             editor.CloseCompletion();
             host.Content = null;
-            Assert.Null(editor.TextEditor.Document);
+            Assert.NotSame(second.Document, editor.TextEditor.Document);
+            Assert.Equal("", editor.TextEditor.Document.Text);
             second.Document.Insert(0, "# host edit\n");
             host.Content = control;
             Assert.Same(second.Document, editor.TextEditor.Document);

@@ -5,6 +5,7 @@ using Avalonia.Automation.Provider;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
+using Avalonia.Input.TextInput;
 using Avalonia.Interactivity;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
@@ -107,7 +108,8 @@ public sealed class HostWindow : Window
             Check(document.Text == "Get-Date", "Native completion popup and acceptance");
             var parent = (Grid)editor.Parent!;
             parent.Children.Remove(editor);
-            Check(inner.Document is null, "Detach releases editing document");
+            Check(inner.Document is not null && inner.Document != document && inner.Document.TextLength == 0,
+                "Detach releases host document with IME-safe empty document");
             document.Insert(0, "# detached edit\n");
             parent.Children.Add(editor);
             Check((await editor.AnalyzeAsync()).State == EditorAnalysisState.Unavailable, "Reattach diagnostics state");
@@ -117,11 +119,12 @@ public sealed class HostWindow : Window
                 Check((await editor.AnalyzeAsync()).State == EditorAnalysisState.Unavailable, "No implicit parser for DSC/invalid/ordinary text");
                 await Task.Delay(50);
             }
+            CheckImeTabLifecycle();
             editor.Dispose();
             document.Insert(0, "# remains host owned\n");
             Check(AppDomain.CurrentDomain.GetAssemblies().All(assembly => assembly.GetName().Name is not ("Iseberg" or "Iseberg.Core" or "System.Management.Automation")),
                 "No workbench/Core/PowerShell runtime loaded");
-            Console.WriteLine("PASS: native Windows Fluent layout/input/undo/completion/automation/detach/reattach/DSC; no PowerShell runtime loaded, diagnostics explicitly unavailable.");
+            Console.WriteLine("PASS: native Windows Fluent layout/input/undo/completion/automation/detach/reattach/DSC/focused IME tab lifecycle; no PowerShell runtime loaded, diagnostics explicitly unavailable.");
             Close();
         }
         catch (Exception exception)
@@ -130,6 +133,50 @@ public sealed class HostWindow : Window
             if (Application.Current!.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
                 desktop.Shutdown(1);
         }
+    }
+
+    private void CheckImeTabLifecycle()
+    {
+        document.Text = "first\nsecond";
+        using var other = new PowerShellEditorControl(new TextDocument("other\neditor"));
+        ((Grid)editor.Parent!).Children.Remove(editor);
+        var firstTab = new TabItem { Header = "First", Content = editor };
+        var secondTab = new TabItem { Header = "Second", Content = other };
+        var tabs = new TabControl { Items = { firstTab, secondTab }, SelectedItem = firstTab };
+        Content = tabs;
+        UpdateLayout();
+        for (var iteration = 0; iteration < 10; iteration++)
+        {
+            Check(editor.FocusEditor(), "Focused IME editor");
+            editor.CaretOffset = document.TextLength;
+            var request = new TextInputMethodClientRequestedEventArgs { RoutedEvent = InputElement.TextInputMethodClientRequestedEvent };
+            editor.TextEditor.TextArea.RaiseEvent(request);
+            var client = request.Client ?? throw new InvalidOperationException("Native editor IME client unavailable.");
+            var queries = 0;
+            void Query(object? sender, EventArgs args)
+            {
+                _ = client.SurroundingText;
+                _ = client.Selection;
+                queries++;
+            }
+            client.SurroundingTextChanged += Query;
+            try
+            {
+                tabs.SelectedItem = secondTab;
+                UpdateLayout();
+                Check(queries > 0, "Native IME transition callbacks");
+                Check(editor.TextEditor.Document != document && editor.TextEditor.Document.TextLength == 0,
+                    "Private empty detached document");
+                tabs.SelectedItem = firstTab;
+                UpdateLayout();
+                Check(editor.Document == document && editor.TextEditor.Document == document && editor.CaretOffset == document.TextLength,
+                    "IME-safe host retention and caret restoration");
+                Check(editor.FocusEditor(), "Reattached IME focus");
+                Check(client.SurroundingText == "second", "Reattached IME surrounding text");
+            }
+            finally { client.SurroundingTextChanged -= Query; }
+        }
+        Check(document.Text == "first\nsecond", "Host text survives focused tab lifecycle");
     }
 
     private static void Check(bool condition, string name)
