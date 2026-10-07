@@ -89,7 +89,7 @@ public sealed class HostDesktopTests
         try
         {
             var execution = session.Engine.ExecuteAsync("$Host.EnterNestedPrompt(); 'returned'");
-            var editor = owner.FindControl<TextEditor>("ConsoleEditor")!;
+            var editor = owner.FindEditor("ConsoleEditor")!;
             await WaitFor(() => session.Engine.IsNestedPromptActive && !editor.IsReadOnly);
             session.FlushOutput();
             Assert.Contains("[Nested 1]: PS> ", session.ConsoleDocument.Text);
@@ -162,7 +162,7 @@ public sealed class HostDesktopTests
             session.Console.ShowPrompt("PS> ");
             owner.Measure(new Size(1200, 800));
             owner.Arrange(new Rect(0, 0, 1200, 800));
-            var editor = owner.FindControl<TextEditor>("ConsoleEditor")!;
+            var editor = owner.FindEditor("ConsoleEditor")!;
             editor.TextArea.TextView.Redraw();
             editor.TextArea.TextView.EnsureVisualLines();
             var styled = editor.TextArea.TextView.VisualLines.SelectMany(line => line.Elements)

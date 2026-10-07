@@ -33,7 +33,7 @@ public sealed partial class WorkbenchControl
                 session.DebugSnapshot = null;
                 session.SelectedDebugFrame = 0;
                 session.Completion = null;
-                if (session == displayedSession) completion?.Close();
+                if (session == displayedSession) Completion?.Close();
                 if (location is not null && session.Engine.State == SessionState.Debugging)
                 {
                     session.DebuggerPaneVisible = true;
@@ -286,7 +286,7 @@ public sealed partial class WorkbenchControl
         var previous = session.SelectedDebugFrame;
         session.SelectedDebugFrame = frame.Index;
         session.Completion = null;
-        completion?.Close();
+        Completion?.Close();
         Interlocked.Increment(ref session.DebugRevisionCounter);
         await GuardAsync(async () =>
         {

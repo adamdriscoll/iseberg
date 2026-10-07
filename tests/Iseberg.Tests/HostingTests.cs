@@ -16,6 +16,62 @@ namespace Iseberg.Tests;
 public sealed class HostingTests
 {
     [AvaloniaFact]
+    public async Task WorkbenchUsesThePackagedEditorForDocumentsAnalysisCompletionAndLifetime()
+    {
+        var control = new WorkbenchControl(new() { EnableCommandsPane = false });
+        var host = new Window { Content = control };
+        host.Styles.Add(new Avalonia.Themes.Fluent.FluentTheme());
+        try
+        {
+            host.Show();
+            await control.InitializeAsync();
+            var first = control.CreateDocument("if (");
+            var editor = control.ScriptEditorView;
+            Assert.Same(editor, control.FindControl<PowerShellEditorControl>("ScriptEditorControl"));
+            Assert.Same(first.Document, editor.Document);
+            Assert.NotNull(editor.AnalysisProvider);
+            Assert.NotNull(editor.CompletionProvider);
+            Assert.Equal(EditorAnalysisState.Available, (await editor.AnalyzeAsync()).State);
+            Assert.NotEmpty(editor.Analysis.Diagnostics);
+            Assert.False(editor.EnableExecutionGestures);
+            var second = control.CreateDocument("$value = 42");
+            Assert.Same(second.Document, editor.Document);
+            Assert.Empty((await editor.AnalyzeAsync()).Diagnostics);
+            editor.Select(new(0, 6));
+            Assert.Equal("$value", editor.CaptureText(EditorTextScope.SelectionOrCurrentLine).Text);
+            second.Document.Text = "Get-D";
+            editor.CaretOffset = second.Document.TextLength;
+            editor.FocusEditor();
+            await editor.ShowCompletionAsync();
+            await Task.Delay(200);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(editor.IsCompletionOpen, "Console prompt/output batching must not dismiss script completion.");
+            editor.CloseCompletion();
+            host.Content = null;
+            Assert.Null(editor.TextEditor.Document);
+            second.Document.Insert(0, "# host edit\n");
+            host.Content = control;
+            Assert.Same(second.Document, editor.TextEditor.Document);
+            Assert.Empty((await editor.AnalyzeAsync()).Diagnostics);
+            control.SelectDocument(first);
+            Assert.Same(first.Document, editor.Document);
+            Assert.NotEmpty((await editor.AnalyzeAsync()).Diagnostics);
+            await control.DisposeAsync();
+            Assert.Throws<ObjectDisposedException>(() => editor.CaptureText());
+            second.Document.Insert(0, "# remains owned\n");
+        }
+        finally { await control.DisposeAsync(); host.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task ScopedThemeProvidesEditorResources()
+    {
+        var control = new WorkbenchControl(new() { EnableCommandsPane = false });
+        Assert.True(control.TryFindResource("ControlContentThemeFontSize", out _));
+        await control.DisposeAsync();
+    }
+
+    [AvaloniaFact]
     public void InvalidHostingConfigurationsFailAtConstruction()
     {
         Assert.Throws<ArgumentException>(() => new WorkbenchControl(new() { ShowScriptPane = false, ShowConsolePane = false }));
@@ -86,7 +142,7 @@ public sealed class HostingTests
             Assert.Equal(console, control.FindControl<Grid>("ConsolePane")!.IsVisible);
             var pane = control.FindControl<Grid>(script ? "ScriptPane" : "ConsolePane")!;
             Assert.Equal(control.FindControl<Grid>("PaneGrid")!.Bounds.Size, pane.Bounds.Size);
-            Assert.True(control.FindControl<TextEditor>(script ? "ScriptEditor" : "ConsoleEditor")!.IsKeyboardFocusWithin);
+            Assert.True(control.FindEditor(script ? "ScriptEditor" : "ConsoleEditor")!.IsKeyboardFocusWithin);
         }
         finally { await control.DisposeAsync(); host.Close(); }
     }
@@ -117,7 +173,7 @@ public sealed class HostingTests
             Assert.Contains("42", second.ConsoleDocument.Text);
             control.SelectDocument(script);
             Assert.Same(original, control.Workbench.SelectedSession);
-            Assert.Same(script.Document, control.FindControl<TextEditor>("ScriptEditor")!.Document);
+            Assert.Same(script.Document, control.FindEditor("ScriptEditor")!.Document);
             control.SelectSession(second);
             Assert.Throws<ArgumentException>(() => control.SelectDocument(new(new ScriptFile("foreign.ps1"))));
             await Assert.ThrowsAsync<ArgumentException>(() => control.SaveDocumentAsync(script, "relative.ps1"));
@@ -146,7 +202,7 @@ public sealed class HostingTests
             host.Show();
             await control.InitializeAsync();
             Assert.Empty(control.Workbench.Sessions);
-            Assert.True(control.FindControl<TextEditor>("ScriptEditor")!.WordWrap);
+            Assert.True(control.FindEditor("ScriptEditor")!.WordWrap);
             await Assert.ThrowsAsync<InvalidOperationException>(() => control.ExecuteAsync("42"));
             await control.CreateSessionAsync();
             await control.ExecuteAsync("42");
@@ -199,7 +255,7 @@ public sealed class HostingTests
             ClickChoice(host, "Cancel");
             Assert.False(await closing);
             Assert.True(control.IsStarted);
-            Assert.False(control.FindControl<TextEditor>("ScriptEditor")!.IsReadOnly);
+            Assert.False(control.FindEditor("ScriptEditor")!.IsReadOnly);
             closing = control.RequestCloseAsync();
             await WaitFor(() => host.OwnedWindows.Any());
             ClickChoice(host, "Don't Save");

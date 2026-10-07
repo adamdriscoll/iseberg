@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:Iseberg" xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+        xmlns:editor="using:Iseberg.Editor"
         x:Class="Iseberg.OptionsWindow" Classes="options" Title="{local:Ui Options}"
         Width="534" Height="562" CanResize="False" ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner" UseLayoutRounding="True">
@@ -45,10 +46,9 @@
       <TextBox x:Name="ThemeName" Canvas.Left="0" Canvas.Top="275" Width="419" Height="28" IsReadOnly="True" BorderBrush="{DynamicResource OptionsGroupBrush}" AutomationProperties.Name="{local:Ui CurrentTheme}" />
       <Button x:Name="ManageThemes" Canvas.Left="424" Canvas.Top="279" Width="99" Height="20" Content="{local:Ui ManageThemes}" />
       <TextBlock Canvas.Left="5" Canvas.Top="308" Text="{local:Ui Sample}" />
-      <local:AccessibleTextEditor x:Name="SampleEditor" Canvas.Left="0" Canvas.Top="328" Width="528" Height="159" Padding="3,0"
-                       IsReadOnly="True" BorderBrush="{DynamicResource OptionsInputBorderBrush}" BorderThickness="1"
-                       HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"
-                       AutomationProperties.Name="{local:Ui Sample}" />
+      <editor:PowerShellEditorControl x:Name="SampleEditorControl" Canvas.Left="0" Canvas.Top="328" Width="528" Height="159"
+                       IsReadOnly="True" EnableSyntaxHighlighting="False"
+                       EditorName="{local:Ui Sample}" />
     </Canvas>
     <Canvas x:Name="GeneralPage" Grid.Row="1" Margin="4,0,0,0" Width="530" Height="494" HorizontalAlignment="Left" IsVisible="False" ClipToBounds="True">
       <Border x:Name="BehaviorGroup" Canvas.Top="10" Width="526" Height="155" CornerRadius="2"

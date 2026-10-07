@@ -12,7 +12,7 @@ internal sealed class StartupFailureApp : Application
     {
         if (ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
         {
-            Styles.Add(new Avalonia.Themes.Simple.SimpleTheme());
+            Styles.Add(new Avalonia.Themes.Fluent.FluentTheme());
             var close = new Button { Content = UiText.Get("Close"), HorizontalAlignment = HorizontalAlignment.Right };
             close.Click += (_, _) => desktop.Shutdown(1);
             desktop.MainWindow = new Window

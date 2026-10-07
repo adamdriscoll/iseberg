@@ -18,7 +18,7 @@ public sealed class ShowCommandPickerWindow : Window
         MinHeight = 350;
         ShowInTaskbar = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        var search = new TextBox { Name = "ShowCommandSearch", Watermark = UiText.Get("Name") };
+        var search = new TextBox { Name = "ShowCommandSearch", PlaceholderText = UiText.Get("Name") };
         var modules = new ComboBox
         {
             ItemsSource = new[] { UiText.Get("AllModules") }.Concat(commands.Select(command => command.Module)

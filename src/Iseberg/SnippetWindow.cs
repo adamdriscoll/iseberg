@@ -18,7 +18,7 @@ public sealed class SnippetWindow : Window
         MinHeight = 350;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
-        var search = new TextBox { Name = "SnippetSearch", Watermark = UiText.Get("SearchSnippets") };
+        var search = new TextBox { Name = "SnippetSearch", PlaceholderText = UiText.Get("SearchSnippets") };
         var list = new ListBox { Name = "SnippetList" };
         var description = new TextBlock { Name = "SnippetDescription", TextWrapping = TextWrapping.Wrap };
         var preview = new TextBox { Name = "SnippetPreview", IsReadOnly = true, AcceptsReturn = true,

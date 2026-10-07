@@ -21,6 +21,7 @@ public sealed partial class OptionsWindow : Window
     private bool colorValid = true;
     private string? colorKey;
     private readonly PowerShellColorizer sampleColorizer = new();
+    private AccessibleTextEditor SampleEditor => SampleEditorControl.TextEditor;
     private readonly string[] layouts = ["Top", "Right", "Maximized"];
     public UserSettings Draft => draft.Copy();
 
@@ -34,6 +35,11 @@ public sealed partial class OptionsWindow : Window
         baseline = JsonSerializer.Serialize(draft);
         DesktopTheme.ApplyWindow(this);
         InitializeComponent();
+        SampleEditor.ShowLineNumbers = false;
+        SampleEditor.Padding = new Thickness(3, 0);
+        SampleEditor.HorizontalScrollBarVisibility = SampleEditor.VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled;
+        SampleEditor.BorderBrush = DesktopTheme.Brush("OptionsInputBorderBrush");
+        SampleEditor.BorderThickness = new Thickness(1);
         Icon = AppIcon.Create();
         BuildColorTree();
         EditorFontSize.ItemsSource = new double[] { 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72 }
@@ -42,7 +48,7 @@ public sealed partial class OptionsWindow : Window
         CompletionTimeout.ItemsSource = Enumerable.Range(1, 30).ToArray();
         NamedColor.ItemsSource = typeof(Colors).GetProperties().Where(p => p.PropertyType == typeof(Color) && p.Name != "Transparent")
             .Select(p => p.Name).Order().ToArray();
-        SampleEditor.Text = """
+        SampleEditorControl.Document.Text = """
             # This is a PowerShell comment.
 
             function MyFunction([Parameter(Position = 0)][System.String]$path)
@@ -106,7 +112,11 @@ public sealed partial class OptionsWindow : Window
         ManageThemes.Click += async (_, _) => await ManageThemesAsync();
         AddHandler(KeyDownEvent, OnDialogKeyDown, RoutingStrategies.Tunnel);
         DesktopTheme.Changed += RefreshSample;
-        Closed += (_, _) => DesktopTheme.Changed -= RefreshSample;
+        Closed += (_, _) =>
+        {
+            DesktopTheme.Changed -= RefreshSample;
+            SampleEditorControl.Dispose();
+        };
         Closing += (_, e) => { if (saving) e.Cancel = true; };
         Opened += (_, _) => OptionsTabs.Focus();
     }

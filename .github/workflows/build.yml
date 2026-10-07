@@ -30,6 +30,10 @@ jobs:
         shell: pwsh
         run: ./build/Install-TestPowerShell.ps1 -Runtime '${{ matrix.runtime }}'
       - run: dotnet test Iseberg.slnx -c Release --verbosity minimal --logger trx --results-directory TestResults --blame-hang-timeout 3m --blame-hang-dump-type none
+      - name: Verify editor package-only consumers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./build/Test-EditorPackage.ps1
       - name: Upload test diagnostics
         if: always()
         uses: actions/upload-artifact@v4

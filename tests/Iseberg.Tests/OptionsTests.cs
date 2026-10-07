@@ -42,7 +42,7 @@ public sealed class OptionsTests
             Assert.False(dialog.FindControl<Canvas>("ColorControls")!.IsEnabled);
             Assert.Equal(9d, dialog.FindControl<ComboBox>("EditorFontSize")!.SelectedItem);
             Assert.Equal("Lucida Console", dialog.FindControl<ComboBox>("EditorFont")!.SelectedItem);
-            Assert.Equal(1, dialog.FindControl<TextEditor>("SampleEditor")!.Options.LineHeightFactor);
+            Assert.Equal(1, dialog.FindEditor("SampleEditor")!.Options.LineHeightFactor);
             Assert.Equal(12, dialog.FindControl<TabStrip>("OptionsTabs")!.GetVisualDescendants().OfType<TabStripItem>().First().FontSize);
 
             dialog.FindControl<TabStrip>("OptionsTabs")!.SelectedIndex = 1;
@@ -213,7 +213,7 @@ public sealed class OptionsTests
             dialog.RaiseEvent(key);
             Assert.True(key.Handled);
             Assert.Equal(1, dialog.FindControl<TabStrip>("OptionsTabs")!.SelectedIndex);
-            var sample = dialog.FindControl<AccessibleTextEditor>("SampleEditor")!;
+            var sample = dialog.FindEditor("SampleEditor")!;
             var peer = ControlAutomationPeer.CreatePeerForElement(sample)!;
             Assert.Equal("Sample:", peer.GetName());
             Assert.Equal(AutomationControlType.Edit, peer.GetAutomationControlType());
@@ -236,11 +236,11 @@ public sealed class OptionsTests
         {
             window.Show();
             DesktopTheme.Refresh(highContrast: true);
-            Assert.Equal(DesktopTheme.Brush("WindowBrush"), window.FindControl<TextEditor>("ScriptEditor")!.Background);
-            Assert.Equal(DesktopTheme.Brush("WindowTextBrush"), window.FindControl<TextEditor>("ConsoleEditor")!.Foreground);
-            Assert.False(window.FindControl<TextEditor>("ScriptEditor")!.Options.HighlightCurrentLine);
+            Assert.Equal(DesktopTheme.Brush("WindowBrush"), window.FindEditor("ScriptEditor")!.Background);
+            Assert.Equal(DesktopTheme.Brush("WindowTextBrush"), window.FindEditor("ConsoleEditor")!.Foreground);
+            Assert.False(window.FindEditor("ScriptEditor")!.Options.HighlightCurrentLine);
             DesktopTheme.Refresh(highContrast: false);
-            Assert.Equal(Color.Parse("#FF00FF"), ((ISolidColorBrush)window.FindControl<TextEditor>("ScriptEditor")!.Background!).Color);
+            Assert.Equal(Color.Parse("#FF00FF"), ((ISolidColorBrush)window.FindEditor("ScriptEditor")!.Background!).Color);
         }
         finally { DesktopTheme.Refresh(); window.Close(); }
     }
@@ -274,7 +274,7 @@ public sealed class OptionsTests
         {
             window.Show();
             Dispatcher.UIThread.RunJobs();
-            var input = window.FindControl<TextEditor>("ConsoleEditor")!;
+            var input = window.FindEditor("ConsoleEditor")!;
             input.Text = "Get-Process";
             input.TextArea.Focus();
             var menu = window.FindControl<Menu>("WorkbenchMenu")!;
@@ -284,8 +284,8 @@ public sealed class OptionsTests
             Assert.Equal(0, input.SelectionStart);
             Assert.Equal(input.Text.Length, input.SelectionLength);
             Assert.True(input.TextArea.IsFocused);
-            Assert.Equal(0, window.FindControl<TextEditor>("ScriptEditor")!.SelectionLength);
-            var output = window.FindControl<TextEditor>("ConsoleEditor")!;
+            Assert.Equal(0, window.FindEditor("ScriptEditor")!.SelectionLength);
+            var output = window.FindEditor("ConsoleEditor")!;
             output.IsReadOnly = true;
             Assert.True(output.TextArea.Focus());
             Assert.True(output.IsReadOnly);
@@ -426,7 +426,7 @@ public sealed class OptionsTests
 
     private static void AssertRect(Window window, string name, double x, double y, double width, double height)
     {
-        var control = window.FindControl<Control>(name)!;
+        var control = window.FindControl<Control>(name) ?? window.FindControl<PowerShellEditorControl>(name + "Control")!;
         var point = control.TranslatePoint(default, window)!.Value;
         Assert.Equal(x * DesktopTheme.TextScale, point.X, 2);
         Assert.Equal(y * DesktopTheme.TextScale, point.Y, 2);

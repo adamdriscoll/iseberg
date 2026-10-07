@@ -3,7 +3,7 @@ using Avalonia.Automation.Peers;
 using Avalonia.Automation.Provider;
 using AvaloniaEdit;
 
-namespace Iseberg;
+namespace Iseberg.Editor;
 
 public sealed class AccessibleTextEditor : TextEditor
 {

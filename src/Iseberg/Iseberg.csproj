@@ -13,14 +13,15 @@
     <DefineConstants>$(DefineConstants);ISEBERG_COMPACT</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.3.22" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
-    <PackageReference Include="Avalonia.Themes.Simple" Version="11.3.22" />
-    <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.4.1" />
+    <PackageReference Include="Avalonia" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.3" />
+    <PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.0" />
     <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.3" Condition="'$(Configuration)' == 'Debug'" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Iseberg.Core\Iseberg.Core.csproj" />
+    <ProjectReference Include="..\Iseberg.Editor\Iseberg.Editor.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(IsebergCompact)' != 'true' And
                         ($([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win-')) Or
@@ -36,13 +37,15 @@
     <ItemGroup>
       <!-- Scripts and reflection bindings can use APIs not statically reachable from the desktop. -->
       <TrimmerRootAssembly Include="@(RuntimePackAsset->'%(Filename)')" Condition="'%(RuntimePackAsset.AssetType)' == 'runtime'" />
-      <TrimmerRootAssembly Include="Iseberg;Iseberg.Core;AvaloniaEdit" />
+      <TrimmerRootAssembly Include="Iseberg;Iseberg.Core;Iseberg.Editor;AvaloniaEdit" />
     </ItemGroup>
   </Target>
-  <Target Name="RemoveCompactPowerShellManifests" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(IsebergCompact)' == 'true'">
+  <Target Name="RemoveCompactPublishSidecars" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(IsebergCompact)' == 'true'">
     <ItemGroup>
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
-                             Condition="'%(ResolvedFileToPublish.RelativePath)' == 'build.manifest' Or '%(ResolvedFileToPublish.RelativePath)' == 'build.manifest.sig'" />
+                             Condition="'%(ResolvedFileToPublish.RelativePath)' == 'build.manifest' Or
+                                        '%(ResolvedFileToPublish.RelativePath)' == 'build.manifest.sig' Or
+                                        '%(ResolvedFileToPublish.Extension)' == '.pdb'" />
     </ItemGroup>
   </Target>
   <Target Name="IncludeCompactCompilerReferences" AfterTargets="ILLink" BeforeTargets="GenerateSingleFileBundle"

@@ -39,7 +39,7 @@ public sealed class IseScriptingTests
                 """);
             var file = session.Files.Single();
             Assert.Equal("First\r\nsecond", file.Document.Text);
-            Assert.Same(file.Document, window.FindControl<TextEditor>("ScriptEditor")!.Document);
+            Assert.Same(file.Document, window.FindEditor("ScriptEditor")!.Document);
             Assert.True(file.Document.UndoStack.CanUndo);
             Assert.Contains("selected=SECOND", session.ConsoleDocument.Text);
             Assert.Contains("caret=2,7", session.ConsoleDocument.Text);

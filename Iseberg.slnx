@@ -2,8 +2,10 @@
   <Folder Name="/src/">
     <Project Path="src/Iseberg.Core/Iseberg.Core.csproj" />
     <Project Path="src/Iseberg/Iseberg.csproj" />
+    <Project Path="src/Iseberg.Editor/Iseberg.Editor.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Iseberg.Tests/Iseberg.Tests.csproj" />
+    <Project Path="tests/Iseberg.Editor.Tests/Iseberg.Editor.Tests.csproj" />
   </Folder>
 </Solution>

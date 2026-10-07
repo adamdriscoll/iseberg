@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
         xmlns:local="using:Iseberg"
+        xmlns:editor="using:Iseberg.Editor"
         x:Class="Iseberg.WorkbenchControl">
   <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
     <Menu x:Name="WorkbenchMenu" Grid.Row="0">
@@ -145,16 +146,13 @@
               </TabStrip.ItemTemplate>
             </TabStrip>
           </Border>
-          <local:AccessibleTextEditor x:Name="ScriptEditor" Grid.Row="1" ShowLineNumbers="True"
-                           FontFamily="Consolas, Cascadia Code, DejaVu Sans Mono, Menlo, monospace"
-                           FontSize="16" Background="White" Foreground="Black"
-                           HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
-                           AutomationProperties.Name="Script editor" />
+          <editor:PowerShellEditorControl x:Name="ScriptEditorControl" Grid.Row="1"
+                           EditorName="Script editor" EnableSyntaxHighlighting="False" />
           <TextBlock Grid.Row="2" x:Name="Diagnostics" Foreground="{DynamicResource WindowTextBrush}" Background="{DynamicResource WindowBrush}" Padding="5,2" IsVisible="False" TextWrapping="Wrap" MaxHeight="45" AutomationProperties.Name="Script diagnostics" />
         </Grid>
         <GridSplitter x:Name="PaneSplitter" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="{DynamicResource ControlBrush}" AutomationProperties.Name="Script and console pane divider" />
         <Grid x:Name="ConsolePane" Grid.Row="2" RowDefinitions="*,Auto" Background="#012456">
-          <local:AccessibleTextEditor x:Name="ConsoleEditor"
+          <editor:AccessibleTextEditor x:Name="ConsoleEditor"
                            FontFamily="Consolas, Cascadia Code, DejaVu Sans Mono, Menlo, monospace"
                            FontSize="16" Background="#012456" Foreground="White"
                            WordWrap="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
@@ -185,7 +183,7 @@
                 <DockPanel Margin="0,3">
                   <Button x:Name="RemoveWatchButton" DockPanel.Dock="Right" Content="{local:Ui RemoveWatch}" Tag="RemoveWatch" Click="OnAction" />
                   <Button DockPanel.Dock="Right" Content="{local:Ui AddWatch}" Tag="AddWatch" Click="OnAction" />
-                  <TextBox x:Name="WatchExpression" Watermark="{local:Ui WatchExpression}" AutomationProperties.Name="{local:Ui WatchExpression}" />
+                  <TextBox x:Name="WatchExpression" PlaceholderText="{local:Ui WatchExpression}" AutomationProperties.Name="{local:Ui WatchExpression}" />
                 </DockPanel>
                 <TreeView Grid.Row="1" x:Name="WatchesList" SelectionChanged="OnWatchSelected" AutomationProperties.Name="{local:Ui Watches}" />
               </Grid>
@@ -218,7 +216,7 @@
             <TextBlock Text="{local:Ui Modules}" VerticalAlignment="Center" Margin="0,0,6,0" />
             <ComboBox x:Name="ModuleFilter" Grid.Column="1" SelectionChanged="OnCommandFilterChanged" MinHeight="26" HorizontalAlignment="Stretch" AutomationProperties.Name="{local:Ui Modules}" />
           </Grid>
-          <TextBox Grid.Row="2" x:Name="CommandSearch" Watermark="{local:Ui Name}" TextChanged="OnCommandSearchChanged" Margin="0,0,0,7" AutomationProperties.Name="Command search" />
+          <TextBox Grid.Row="2" x:Name="CommandSearch" PlaceholderText="{local:Ui Name}" TextChanged="OnCommandSearchChanged" Margin="0,0,0,7" AutomationProperties.Name="Command search" />
           <ListBox Grid.Row="3" x:Name="CommandList" Background="{DynamicResource WindowBrush}" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}" SelectionChanged="OnCommandSelected" DoubleTapped="OnInsertCommand" AutomationProperties.Name="{local:Ui CommandsTitle}">
             <ListBox.ItemTemplate>
               <DataTemplate>
