@@ -279,13 +279,13 @@ public sealed class EditorTests
             Assert.Equal(new EditorTextSpan(2, 1), control.Selection);
             window.KeyTextInput("d");
             Assert.Equal("abd", control.Document.Text);
-            Press(window, Key.Z, KeyModifiers.Control);
+            Press(window, ApplicationCommands.Undo.Gesture);
             Assert.Equal("abc", control.Document.Text);
-            Press(window, Key.Y, KeyModifiers.Control);
+            Press(window, ApplicationCommands.Redo.Gesture);
             Assert.Equal("abd", control.Document.Text);
-            Press(window, Key.A, KeyModifiers.Control);
+            Press(window, ApplicationCommands.SelectAll.Gesture);
             Assert.Equal(3, control.Selection.Length);
-            Press(window, Key.F, KeyModifiers.Control);
+            Press(window, ApplicationCommands.Find.Gesture);
             Assert.False(Assert.Single(control.GetVisualDescendants().OfType<SearchPanel>()).IsClosed);
         }
         finally { window.Close(); }
@@ -662,6 +662,7 @@ public sealed class EditorTests
         return window;
     }
     private static TextEditor Inner(PowerShellEditorControl control) => control.GetVisualDescendants().OfType<TextEditor>().Single();
+    private static void Press(Window window, KeyGesture gesture) => Press(window, gesture.Key, gesture.KeyModifiers);
     private static void Press(Window window, Key key, KeyModifiers modifiers = KeyModifiers.None)
     {
         var raw = RawInputModifiers.None;
