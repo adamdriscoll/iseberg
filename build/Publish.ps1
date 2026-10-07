@@ -83,7 +83,8 @@ try {
 
     $files = @(Get-ChildItem -LiteralPath $compact -Recurse -File)
     if ($files.Count -ne 1 -or $files[0].Name -ne $executable) {
-        throw 'Compact publish must contain exactly one executable.'
+        $unexpected = $files | ForEach-Object { [IO.Path]::GetRelativePath($compact, $_.FullName) }
+        throw "Compact publish must contain exactly one executable. Found: $($unexpected -join ', ')"
     }
     Test-Runtime (Join-Path $full $executable)
     Test-Runtime (Join-Path $compact $executable)

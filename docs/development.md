@@ -124,6 +124,8 @@ Use the matching runtime identifier on Linux/macOS and run `Iseberg` instead of 
 
 Compact trimming is deliberately partial: Avalonia's trim-compatible libraries are trimmed, while the application's reflection-bound models, AvaloniaEdit, and .NET framework APIs used by dynamically loaded scripts are preserved. Compiler reference assemblies are included for `Add-Type`. NativeAOT is not supported because this in-process PowerShell host requires dynamic assembly loading and code generation.
 
+Compact publishing excludes external `.pdb` debug-symbol sidecars, including those supplied by Windows Skia/HarfBuzz native packages, to preserve its single-executable contract. Native runtime binaries remain bundled; normal full publishes retain their package-supplied debug symbols.
+
 At launch the single file extracts its bundled assemblies/native libraries into .NET's extraction cache. The cache must be writable; set `DOTNET_BUNDLE_EXTRACT_BASE_DIR` to change its location. Keep the selected PowerShell installation available while Iseberg runs. All-users profile paths come from that engine installation; user profiles remain opt-in.
 
 ### Compact ZIP packaging and CI artifacts

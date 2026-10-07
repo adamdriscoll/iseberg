@@ -40,10 +40,12 @@
       <TrimmerRootAssembly Include="Iseberg;Iseberg.Core;Iseberg.Editor;AvaloniaEdit" />
     </ItemGroup>
   </Target>
-  <Target Name="RemoveCompactPowerShellManifests" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(IsebergCompact)' == 'true'">
+  <Target Name="RemoveCompactPublishSidecars" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(IsebergCompact)' == 'true'">
     <ItemGroup>
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
-                             Condition="'%(ResolvedFileToPublish.RelativePath)' == 'build.manifest' Or '%(ResolvedFileToPublish.RelativePath)' == 'build.manifest.sig'" />
+                             Condition="'%(ResolvedFileToPublish.RelativePath)' == 'build.manifest' Or
+                                        '%(ResolvedFileToPublish.RelativePath)' == 'build.manifest.sig' Or
+                                        '%(ResolvedFileToPublish.Extension)' == '.pdb'" />
     </ItemGroup>
   </Target>
   <Target Name="IncludeCompactCompilerReferences" AfterTargets="ILLink" BeforeTargets="GenerateSingleFileBundle"
