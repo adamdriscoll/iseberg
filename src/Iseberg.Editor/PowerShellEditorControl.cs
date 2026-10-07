@@ -86,7 +86,7 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
             observedVersion = value.Version;
             version++;
             savedCaret = savedSelectionStart = savedSelectionLength = 0;
-            editor.Document = attached || !hasAttached ? value : null;
+            editor.Document = attached || !hasAttached ? value : new TextDocument();
             InvalidateAnalysis();
             if (attached)
             {
@@ -364,7 +364,8 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
         lifetime++;
         CancelWork();
         UnsubscribeDocument();
-        editor.Document = null;
+        // Native IME observers can query the text area during the caret reset, before focus is released.
+        editor.Document = new TextDocument();
         InvalidateAnalysis();
         base.OnDetachedFromVisualTree(e);
     }
@@ -518,7 +519,8 @@ public sealed class PowerShellEditorControl : UserControl, IDisposable
         editor.TextArea.TextEntering -= OnTextEntering;
         editor.TextArea.TextEntered -= OnTextEntered;
         editor.RemoveHandler(KeyDownEvent, OnKeyDown);
-        editor.Document = null;
+        editor.Document = new TextDocument();
+        editor.IsReadOnly = true;
         Analysis = new(version, EditorAnalysisState.Unavailable, []);
         analysisProvider = null;
         completionProvider = null;
